@@ -48,6 +48,9 @@
     
     if (isLoginSuccess) {
         // 3. 접속 유형(accessType)에 따른 페이지 리다이렉트 분기
+        // 로그인 성공 시 세션에 사용자 ID 저장
+        session.setAttribute("userId", userId);
+
         if ("blackbox".equals(accessType)) {
             response.sendRedirect("blackbox.jsp");
         } else if ("video".equals(accessType)) {

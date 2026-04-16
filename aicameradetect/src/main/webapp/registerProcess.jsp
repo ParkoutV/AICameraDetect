@@ -1,6 +1,5 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
 <%@ page import="java.sql.*, java.util.Properties, java.io.InputStream" %>
-<%@ page import="java.sql.*, java.util.Properties, java.io.InputStream, java.net.URLEncoder" %>
 <%
     // 1. 인코딩 및 파라미터 수신
     request.setCharacterEncoding("UTF-8");
@@ -29,7 +28,6 @@
     Connection conn = null;
     PreparedStatement pstmt = null;
     boolean isSuccess = false;
-    String errorMsg = "";
     
     try {
         Class.forName("com.mysql.cj.jdbc.Driver");
@@ -46,9 +44,7 @@
             isSuccess = true;
         }
     } catch (Exception e) {
-        System.out.println("[DB 에러] " + e.getMessage());
         e.printStackTrace();
-        errorMsg = e.getMessage();
     } finally {
         if (pstmt != null) try { pstmt.close(); } catch(SQLException ex) {}
         if (conn != null) try { conn.close(); } catch(SQLException ex) {}
@@ -59,11 +55,5 @@
         response.sendRedirect("index.jsp?register=success"); // 가입 완료 시 로그인 화면으로
     } else {
         response.sendRedirect("register.jsp?error=fail"); // 가입 실패 시 회원가입 화면으로
-        // 에러 메시지를 URL 파라미터로 함께 전달
-        String redirectUrl = "register.jsp?error=fail";
-        if (errorMsg != null && !errorMsg.isEmpty()) {
-            redirectUrl += "&reason=" + URLEncoder.encode(errorMsg, "UTF-8");
-        }
-        response.sendRedirect(redirectUrl);
     }
 %>
