@@ -82,6 +82,11 @@
         let recordedChunks = [];
         let stream;
         let recordingInterval;
+        let currentRecordingId;
+        let segmentCounter = 1;
+        let isStopping = false; // 녹화 중지 상태를 추적하는 변수
+        let activeUploads = 0;  // 현재 진행 중인 업로드 수
+        let stopTime = null;    // 녹화 중지 시간 기록
 
         // 1. 사용 가능한 카메라 장치 목록 가져오기
         async function getCameras() {
@@ -141,54 +146,103 @@
             };
 
             mediaRecorder.onstop = () => {
-                if (recordedChunks.length === 0) return;
+                if (recordedChunks.length === 0) {
+                    checkAndMerge();
+                    return;
+                }
 
                 const blob = new Blob(recordedChunks, { type: 'video/webm' });
-                const formData = new FormData();
-                formData.append('video', blob, 'segment.webm');
-
-                // 서버로 비동기 전송
-                fetch('uploadSegment', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if(data.error) throw new Error(data.error);
-                    console.log('Upload success:', data);
-                    const p = document.createElement('p');
-                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 업로드 완료: ${data.fileName}`;
-                    recordedList.prepend(p);
-                })
-                .catch(error => {
-                    console.error('Upload error:', error);
-                    const p = document.createElement('p');
-                    p.textContent = `[${new Date().toLocaleTimeString()}] 업로드 실패: ${error.message}`;
-                    p.style.color = 'red';
-                    recordedList.prepend(p);
-                });
+                uploadSegmentWithRetry(blob, currentRecordingId, segmentCounter++);
             };
 
             mediaRecorder.start();
             console.log('30초 녹화 세그먼트 시작:', new Date());
         }
 
+        function uploadSegmentWithRetry(blob, recordingId, counter) {
+            activeUploads++;
+            const formData = new FormData();
+            formData.append('video', blob, 'segment.webm');
+            formData.append('recordingId', recordingId);
+            formData.append('segmentCounter', counter);
+
+            const attempt = (retryCount) => {
+                fetch('uploadSegment', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP 오류: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    if(data.error) throw new Error(data.error);
+                    const p = document.createElement('p');
+                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 완료: ${data.fileName}`;
+                    recordedList.prepend(p);
+                    
+                    activeUploads--;
+                    checkAndMerge();
+                })
+                .catch(error => {
+                    let timeSinceStop = (isStopping && stopTime) ? (Date.now() - stopTime) : 0;
+                    
+                    // 정지 후 1분 초과 시 무시. (업로드 대기 중(진행 중)이거나 setTimeout 중일 때는 여기까지 안 오므로 조건 충족)
+                    if (isStopping && timeSinceStop > 60000) {
+                        const p = document.createElement('p');
+                        p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 실패 후 무시됨 (정지 후 1분 초과): ${error.message}`;
+                        p.style.color = 'red';
+                        recordedList.prepend(p);
+                        
+                        activeUploads--;
+                        checkAndMerge();
+                        return;
+                    }
+
+                    // 지수 백오프: 2^retryCount * 1000ms, 최대 120초
+                    const delay = Math.min(1000 * Math.pow(2, retryCount), 120000);
+                    const p = document.createElement('p');
+                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 실패, ${delay/1000}초 후 재시도...`;
+                    p.style.color = 'orange';
+                    recordedList.prepend(p);
+                    
+                    setTimeout(() => attempt(retryCount + 1), delay);
+                });
+            };
+            attempt(0);
+        }
+
+        function checkAndMerge() {
+            if (isStopping && activeUploads === 0) {
+                sendMergeRequest();
+                isStopping = false;
+            }
+        }
+
         startBtn.onclick = () => {
             // 수동 시작은 막고, 자동 시작만 허용
         };
+
+        // 실제 서버에 병합을 요청하는 함수 분리
+        function sendMergeRequest() {
+            const formData = new FormData();
+            formData.append('recordingId', currentRecordingId);
+            navigator.sendBeacon('stopRecording', formData);
+            console.log('마지막 세그먼트 업로드가 끝나고 서버에 병합을 요청했습니다.');
+        }
 
         function stopRecordingAndNotifyServer() {
             if (recordingInterval) {
                 clearInterval(recordingInterval);
                 recordingInterval = null;
             }
+            isStopping = true; // 병합 플래그 켜기
+            stopTime = Date.now(); // 정지 시간 기록
             if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop(); // 마지막 녹화분 저장 및 업로드
+                mediaRecorder.stop(); // onstop 트리거 -> uploadSegmentWithRetry 시작 -> checkAndMerge
+            } else {
+                checkAndMerge(); // 녹화 중이 아니면 즉시 확인
             }
-            
-            // navigator.sendBeacon은 페이지를 떠날 때 안정적으로 데이터를 보내는 API
-            navigator.sendBeacon('stopRecording', new Blob());
-            console.log('녹화가 중지되었으며 서버에 병합을 요청했습니다.');
         }
 
         stopBtn.onclick = () => {
@@ -205,6 +259,9 @@
             startBtn.disabled = true;
             stopBtn.disabled = false;
             
+            currentRecordingId = crypto.randomUUID(); // 고유 녹화 ID 생성
+            segmentCounter = 1; // 카운터 초기화
+
             startRecordingSegment(); // 즉시 첫 녹화 시작
             // 30초마다 새로운 녹화 세그먼트 시작
             recordingInterval = setInterval(startRecordingSegment, 30000);

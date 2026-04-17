@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 import javax.servlet.ServletException;
+import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -23,6 +24,7 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
 @WebServlet("/stopRecording")
+@MultipartConfig // 클라이언트에서 FormData를 beacon으로 보낼 때, 이를 파싱하기 위해 필요합니다.
 public class StopRecordingServlet extends HttpServlet {
 
     @Override
@@ -32,11 +34,15 @@ public class StopRecordingServlet extends HttpServlet {
 
         if (userId == null) return;
 
-        // 세션 정리
-        session.removeAttribute("segmentCounter");
+        // 세션 대신 클라이언트에서 전달받은 recordingId를 사용합니다.
+        String recordingId = req.getParameter("recordingId");
+        if (recordingId == null) {
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
 
-        String tempVideoPath = getServletContext().getRealPath("/uploads/temp_videos");
-        String finalVideoPath = getServletContext().getRealPath("/uploads/final_videos");
+        String tempVideoPath = "C:\\Users\\kghbs\\aicamera_uploads\\temp_videos";
+        String finalVideoPath = "C:\\Users\\kghbs\\aicamera_uploads\\final_videos";
         new File(finalVideoPath).mkdirs();
 
         List<String> segmentFiles = new ArrayList<>();
@@ -44,9 +50,10 @@ public class StopRecordingServlet extends HttpServlet {
 
         try (Connection conn = DBUtil.getConnection(getServletContext())) {
             // 1. 병합할 파일 목록 임시 DB에서 가져오기
-            String selectSql = "SELECT segment_filename, created_at FROM temp_videos WHERE user_id = ? ORDER BY segment_id ASC";
+            String selectSql = "SELECT segment_filename, created_at FROM temp_videos WHERE user_id = ? AND segment_filename LIKE ? ORDER BY segment_id ASC";
             try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
                 pstmt.setString(1, userId);
+                pstmt.setString(2, "%" + recordingId + "%");
                 ResultSet rs = pstmt.executeQuery();
                 while (rs.next()) {
                     segmentFiles.add(rs.getString("segment_filename"));
@@ -58,64 +65,99 @@ public class StopRecordingServlet extends HttpServlet {
 
             if (segmentFiles.isEmpty()) return;
 
-            // 2. FFmpeg 실행 로직
-            // FFmpeg를 위한 파일 리스트(mylist.txt) 생성
-            File listFile = new File(tempVideoPath, userId + "_mylist.txt");
-            try (PrintWriter writer = new PrintWriter(listFile)) {
-                for (String fileName : segmentFiles) {
-                    writer.println("file '" + fileName + "'");
+            // DB 저장 순서(segment_id)가 네트워크 지연 등으로 실제 촬영 순서와 다를 수 있으므로
+            // 파일명 맨 끝에 있는 카운터(인덱스) 번호를 추출하여 오름차순으로 정확히 정렬합니다.
+            segmentFiles.sort((f1, f2) -> {
+                try {
+                    int c1 = Integer.parseInt(f1.substring(f1.lastIndexOf('_') + 1, f1.lastIndexOf('.')));
+                    int c2 = Integer.parseInt(f2.substring(f2.lastIndexOf('_') + 1, f2.lastIndexOf('.')));
+                    return Integer.compare(c1, c2);
+                } catch (Exception e) {
+                    return f1.compareTo(f2); // 파싱 실패 시 기본 문자열 정렬로 대체
+                }
+            });
+
+            // 2. 누락된 조각을 기준으로 그룹화 (예: 1~2, 4~6)
+            List<List<String>> groups = new ArrayList<>();
+            List<String> currentGroup = new ArrayList<>();
+            int lastCounter = -1;
+
+            for (String file : segmentFiles) {
+                try {
+                    int currentCounter = Integer.parseInt(file.substring(file.lastIndexOf('_') + 1, file.lastIndexOf('.')));
+                    if (lastCounter != -1 && currentCounter - lastCounter > 1) {
+                        groups.add(currentGroup);
+                        currentGroup = new ArrayList<>();
+                    }
+                    currentGroup.add(file);
+                    lastCounter = currentCounter;
+                } catch (Exception e) {
+                    currentGroup.add(file);
                 }
             }
+            if (!currentGroup.isEmpty()) {
+                groups.add(currentGroup);
+            }
 
-            // 최종 파일 이름 랜덤 생성 (중복 방지 로직은 생략, UUID로 충분히 대체 가능)
-            String finalVideoName = UUID.randomUUID().toString() + ".mp4";
+            boolean allSuccess = true;
 
-            /*
-             * [중요] 아래 FFmpeg 실행 코드는 서버에 FFmpeg가 설치되어 있고,
-             * 실행 경로가 시스템 PATH에 잡혀있어야 동작합니다.
-             * 실제 실행은 ProcessBuilder를 사용합니다.
-             */
-            System.out.println("FFmpeg 병합을 시작합니다: " + userId);
-            ProcessBuilder pb = new ProcessBuilder(
-                "ffmpeg",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", listFile.getAbsolutePath(),
-                "-c", "copy",
-                new File(finalVideoPath, finalVideoName).getAbsolutePath()
-            );
-            pb.directory(new File(tempVideoPath)); // 작업 디렉토리 설정
-            Process process = pb.start();
-            
-            // FFmpeg 실행 로그 확인 (디버깅용)
-            new BufferedReader(new InputStreamReader(process.getErrorStream())).lines().forEach(System.out::println);
-
-            int exitCode = process.waitFor(); // FFmpeg 작업이 끝날 때까지 대기
-
-            if (exitCode == 0) { // FFmpeg 병합 성공
-                System.out.println("병합 성공: " + finalVideoName);
-                // 3. 메인 DB에 최종 영상 정보 저장
-                String insertSql = "INSERT INTO main_videos (user_id, video_file_name, start_time, analysis_status) VALUES (?, ?, ?, '분석중')";
-                try (PreparedStatement insertPstmt = conn.prepareStatement(insertSql)) {
-                    insertPstmt.setString(1, userId);
-                    insertPstmt.setString(2, finalVideoName);
-                    insertPstmt.setTimestamp(3, firstSegmentTime);
-                    insertPstmt.executeUpdate();
+            // 3. 각 그룹별로 FFmpeg 병합 실행
+            for (int i = 0; i < groups.size(); i++) {
+                List<String> group = groups.get(i);
+                
+                File listFile = new File(tempVideoPath, userId + "_" + recordingId + "_group" + i + "_mylist.txt");
+                try (PrintWriter writer = new PrintWriter(listFile)) {
+                    for (String fileName : group) {
+                        writer.println("file '" + fileName + "'");
+                    }
                 }
 
-                // 4. 임시 DB 및 파일 삭제
-                String deleteSql = "DELETE FROM temp_videos WHERE user_id = ?";
+                String finalVideoName = UUID.randomUUID().toString() + ".mp4";
+
+                System.out.println("FFmpeg 병합을 시작합니다 (그룹 " + (i+1) + "/" + groups.size() + "): " + userId);
+                ProcessBuilder pb = new ProcessBuilder(
+                    "ffmpeg",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", listFile.getAbsolutePath(),
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    new File(finalVideoPath, finalVideoName).getAbsolutePath()
+                );
+                pb.directory(new File(tempVideoPath));
+                Process process = pb.start();
+                
+                new BufferedReader(new InputStreamReader(process.getErrorStream())).lines().forEach(System.out::println);
+
+                int exitCode = process.waitFor();
+
+                if (exitCode == 0) {
+                    System.out.println("병합 성공 (그룹 " + (i+1) + "): " + finalVideoName);
+                    String insertSql = "INSERT INTO main_videos (user_id, video_file_name, start_time, analysis_status) VALUES (?, ?, ?, '분석중')";
+                    try (PreparedStatement insertPstmt = conn.prepareStatement(insertSql)) {
+                        insertPstmt.setString(1, userId);
+                        insertPstmt.setString(2, finalVideoName);
+                        insertPstmt.setTimestamp(3, firstSegmentTime);
+                        insertPstmt.executeUpdate();
+                    }
+                } else {
+                    System.err.println("FFmpeg 병합 실패 (그룹 " + (i+1) + "). Exit code: " + exitCode);
+                    allSuccess = false;
+                }
+                listFile.delete();
+            }
+
+            // 4. 모든 병합이 성공했을 경우 임시 DB 및 파일 일괄 삭제
+            if (allSuccess) {
+                String deleteSql = "DELETE FROM temp_videos WHERE user_id = ? AND segment_filename LIKE ?";
                 try (PreparedStatement deletePstmt = conn.prepareStatement(deleteSql)) {
                     deletePstmt.setString(1, userId);
+                    deletePstmt.setString(2, "%" + recordingId + "%");
                     deletePstmt.executeUpdate();
                 }
                 for (String fileName : segmentFiles) {
                     new File(tempVideoPath, fileName).delete();
                 }
-                listFile.delete();
-
-            } else {
-                System.err.println("FFmpeg 병합 실패. Exit code: " + exitCode);
             }
 
         } catch (Exception e) {
