@@ -31,10 +31,9 @@
             border-radius: 5px;
             color: white;
         }
-        #startBtn { background-color: #28a745; }
-        #startBtn:disabled { background-color: #999; }
-        #stopBtn { background-color: #dc3545; }
-        #stopBtn:disabled { background-color: #999; }
+        #toggleBtn { background-color: #28a745; } /* 녹화 시작 (기본) */
+        #toggleBtn.recording { background-color: #dc3545; } /* 녹화 중지 */
+        #toggleBtn:disabled { background-color: #999; }
         #recordedList a {
             display: block;
             padding: 8px;
@@ -60,8 +59,7 @@
         <video id="video" playsinline autoplay muted></video>
 
         <div class="controls buttons">
-            <button id="startBtn">녹화 시작</button>
-            <button id="stopBtn" disabled>녹화 중지</button>
+            <button id="toggleBtn">녹화 시작</button>
         </div>
 
         <h2>업로드된 영상 조각 로그</h2>
@@ -74,8 +72,7 @@
     <script>
         const videoSelect = document.getElementById('videoSource');
         const videoElement = document.getElementById('video');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
+        const toggleBtn = document.getElementById('toggleBtn');
         const recordedList = document.getElementById('recordedList');
 
         let mediaRecorder;
@@ -84,9 +81,12 @@
         let recordingInterval;
         let currentRecordingId;
         let segmentCounter = 1;
+        let isRecording = false;
         let isStopping = false; // 녹화 중지 상태를 추적하는 변수
         let activeUploads = 0;  // 현재 진행 중인 업로드 수
         let stopTime = null;    // 녹화 중지 시간 기록
+        let mergeResolve = null; // 병합 완료 대기용 Promise
+        let isIntentionalNavigation = false; // 안전한 페이지 이동 상태 플래그
 
         // 1. 사용 가능한 카메라 장치 목록 가져오기
         async function getCameras() {
@@ -216,12 +216,29 @@
             if (isStopping && activeUploads === 0) {
                 sendMergeRequest();
                 isStopping = false;
+                if (mergeResolve) {
+                    mergeResolve();
+                    mergeResolve = null;
+                }
             }
         }
 
-        startBtn.onclick = () => {
-            // 수동 시작은 막고, 자동 시작만 허용
-        };
+        function stopRecordingAndNotifyServer() {
+            return new Promise((resolve) => {
+                if (recordingInterval) {
+                    clearInterval(recordingInterval);
+                    recordingInterval = null;
+                }
+                isStopping = true; // 병합 플래그 켜기
+                stopTime = Date.now(); // 정지 시간 기록
+                mergeResolve = resolve; // 완료 시 호출될 콜백 저장
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop(); // onstop 트리거 -> uploadSegmentWithRetry 시작 -> checkAndMerge
+                } else {
+                    checkAndMerge(); // 녹화 중이 아니면 즉시 확인
+                }
+            });
+        }
 
         // 실제 서버에 병합을 요청하는 함수 분리
         function sendMergeRequest() {
@@ -231,57 +248,92 @@
             console.log('마지막 세그먼트 업로드가 끝나고 서버에 병합을 요청했습니다.');
         }
 
-        function stopRecordingAndNotifyServer() {
-            if (recordingInterval) {
-                clearInterval(recordingInterval);
-                recordingInterval = null;
-            }
-            isStopping = true; // 병합 플래그 켜기
-            stopTime = Date.now(); // 정지 시간 기록
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop(); // onstop 트리거 -> uploadSegmentWithRetry 시작 -> checkAndMerge
+        toggleBtn.onclick = async () => {
+            if (isRecording) {
+                // 녹화 중지 로직
+                toggleBtn.disabled = true;
+                toggleBtn.textContent = '저장 중...';
+                
+                await stopRecordingAndNotifyServer();
+                
+                toggleBtn.classList.remove('recording');
+                toggleBtn.textContent = '녹화 시작';
+                toggleBtn.disabled = false;
+                isRecording = false;
             } else {
-                checkAndMerge(); // 녹화 중이 아니면 즉시 확인
+                // 녹화 시작 로직
+                if (!stream) {
+                    alert('카메라 스트림이 준비되지 않았습니다. 잠시 후 다시 시도해주세요.');
+                    return;
+                }
+                toggleBtn.classList.add('recording');
+                toggleBtn.textContent = '녹화 중지';
+                isRecording = true;
+
+                currentRecordingId = crypto.randomUUID(); // 새 녹화 세션마다 고유 ID 생성
+                segmentCounter = 1;
+
+                startRecordingSegment(); // 즉시 첫 녹화 시작
+                recordingInterval = setInterval(startRecordingSegment, 30000);
+                console.log("녹화를 시작합니다.");
             }
-        }
-
-        stopBtn.onclick = () => {
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            stopRecordingAndNotifyServer();
-        };
-
-        function startAutoRecording() {
-            if (!stream) {
-                setTimeout(startAutoRecording, 1000); // 스트림 준비될 때까지 1초 대기
-                return;
-            }
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-            
-            currentRecordingId = crypto.randomUUID(); // 고유 녹화 ID 생성
-            segmentCounter = 1; // 카운터 초기화
-
-            startRecordingSegment(); // 즉시 첫 녹화 시작
-            // 30초마다 새로운 녹화 세그먼트 시작
-            recordingInterval = setInterval(startRecordingSegment, 30000);
-            console.log("자동 녹화를 시작합니다.");
         }
 
         // 페이지 로드 시 초기화
         async function init() {
             await getCameras();
             await startVideo();
-            startAutoRecording(); // 자동 녹화 시작
+            
+            // 카메라 스트림이 성공적으로 준비되었다면 즉시 자동 녹화 시작
+            if (stream && !isRecording) {
+                toggleBtn.click();
+            }
         }
 
-        videoSelect.onchange = startVideo;
-        window.addEventListener('beforeunload', () => {
-            if (!stopBtn.disabled) { // 녹화가 진행중일 때만
-                stopRecordingAndNotifyServer();
+        // '로그아웃' 등 페이지 내의 링크(a 태그)를 클릭했을 때의 안전한 종료 처리
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', async (e) => {
+                if (isRecording || activeUploads > 0) {
+                    e.preventDefault(); // 즉시 페이지 이동 차단
+                    const targetHref = link.href;
+                    
+                    // 화면 전체를 가리는 로딩 오버레이 생성
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); color:white; display:flex; align-items:center; justify-content:center; z-index:9999; font-size:20px; font-weight:bold; text-align:center; line-height:1.6; flex-direction:column;';
+                    overlay.innerHTML = '<span>마지막 영상을 서버에 안전하게 저장 중입니다...</span><br><span style="font-size:16px; color:#ccc;">잠시만 기다려주세요. 창을 닫지 마세요.</span>';
+                    document.body.appendChild(overlay);
+
+                    if (isRecording) {
+                        toggleBtn.disabled = true;
+                        await stopRecordingAndNotifyServer();
+                        isRecording = false; // 녹화 상태 해제
+                    } else if (activeUploads > 0) {
+                        // 이미 중지 버튼을 눌렀으나 업로드가 남은 경우 대기
+                        await new Promise(resolve => {
+                            const checkInterval = setInterval(() => {
+                                if (activeUploads === 0) {
+                                    clearInterval(checkInterval);
+                                    resolve();
+                                }
+                            }, 500);
+                        });
+                    }
+                    isIntentionalNavigation = true; // 안전한 이동이므로 경고창 우회 플래그 켜기
+                    window.location.href = targetHref; // 업로드 완료 후 원래 누르려던 링크로 이동
+                }
+            });
+        });
+
+        // 브라우저 탭 닫기, 뒤로가기 등 시스템적인 페이지 이탈 시 경고
+        window.addEventListener('beforeunload', (event) => {
+            if (!isIntentionalNavigation && (isRecording || activeUploads > 0)) { 
+                // 대용량 파일 업로드는 unload 시 강제 취소되므로 시스템 경고 창을 띄움
+                event.preventDefault();
+                event.returnValue = '마지막 영상이 아직 서버에 업로드되지 않았습니다. 창을 닫으면 유실될 수 있습니다.';
             }
         });
 
+        videoSelect.onchange = startVideo;
         init();
     </script>
 </body>
