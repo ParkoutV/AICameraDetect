@@ -30,7 +30,8 @@ public class VideoServeServlet extends HttpServlet {
             return;
         }
 
-        File videoFile = new File(
+        File videoFile = new File(ConfigUtil.getFinalVideoPath(), fileName);
+
         if (!videoFile.exists()) {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND, "영상을 찾을 수 없습니다.");
             return;
