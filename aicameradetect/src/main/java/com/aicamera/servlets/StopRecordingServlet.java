@@ -1,6 +1,7 @@
 package com.aicamera.servlets;
 
 import com.aicamera.util.DBUtil;
+import com.aicamera.util.ConfigUtil;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -41,8 +42,8 @@ public class StopRecordingServlet extends HttpServlet {
             return;
         }
 
-        String tempVideoPath = "C:\\Users\\kghbs\\aicamera_uploads\\temp_videos";
-        String finalVideoPath = "C:\\Users\\kghbs\\aicamera_uploads\\final_videos";
+        String tempVideoPath = ConfigUtil.getTempVideoPath();
+        String finalVideoPath = ConfigUtil.getFinalVideoPath();
         new File(finalVideoPath).mkdirs();
 
         List<String> segmentFiles = new ArrayList<>();

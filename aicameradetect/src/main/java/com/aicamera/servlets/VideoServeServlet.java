@@ -1,5 +1,7 @@
 package com.aicamera.servlets;
 
+import com.aicamera.util.ConfigUtil;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -28,8 +30,7 @@ public class VideoServeServlet extends HttpServlet {
             return;
         }
 
-        File videoFile = new File("C:\\Users\\kghbs\\aicamera_uploads\\final_videos", fileName);
-
+        File videoFile = new File(
         if (!videoFile.exists()) {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND, "영상을 찾을 수 없습니다.");
             return;

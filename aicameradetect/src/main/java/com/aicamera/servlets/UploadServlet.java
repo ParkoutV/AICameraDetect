@@ -1,6 +1,7 @@
 package com.aicamera.servlets;
 
 import com.aicamera.util.DBUtil;
+import com.aicamera.util.ConfigUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -57,7 +58,7 @@ public class UploadServlet extends HttpServlet {
         // 파일 저장
         Part filePart = req.getPart("video");
         String fileName = userId + "_" + recordingId + "_" + counter + ".webm";
-        String uploadPath = "C:\\Users\\kghbs\\aicamera_uploads\\temp_videos";
+        String uploadPath = ConfigUtil.getTempVideoPath();
         
         File uploadDir = new File(uploadPath);
         if (!uploadDir.exists()) {
