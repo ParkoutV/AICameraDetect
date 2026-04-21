@@ -94,6 +94,8 @@
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const videoDevices = devices.filter(device => device.kind === 'videoinput');
                 
+                videoSelect.innerHTML = ''; // 장치 목록 초기화
+
                 videoDevices.forEach(device => {
                     const option = document.createElement('option');
                     option.value = device.deviceId;
@@ -281,12 +283,26 @@
 
         // 페이지 로드 시 초기화
         async function init() {
-            await getCameras();
-            await startVideo();
-            
-            // 카메라 스트림이 성공적으로 준비되었다면 즉시 자동 녹화 시작
-            if (stream && !isRecording) {
-                toggleBtn.click();
+            // 1. HTTPS 접속 확인 (모바일 브라우저는 HTTP 환경에서 카메라 접근을 완전히 차단합니다)
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('카메라 접근을 지원하지 않는 브라우저이거나, HTTP 환경입니다.\n모바일에서는 반드시 HTTPS(또는 localhost)로 접속해야 합니다.');
+                return;
+            }
+
+            try {
+                // 2. 모바일 권한 팝업 유도: 장치 목록(enumerateDevices)을 부르기 전에 먼저 영상부터 요청해야 팝업이 뜹니다.
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                
+                await getCameras(); // 권한을 획득했으므로 카메라 이름(Label)도 정상적으로 가져옵니다.
+                await startVideo(); // 선택된 정확한 장치 ID를 이용해 스트림 재시작
+                
+                // 카메라 스트림이 성공적으로 준비되었다면 즉시 자동 녹화 시작
+                if (stream && !isRecording) {
+                    toggleBtn.click();
+                }
+            } catch (e) {
+                console.error('카메라 권한 오류:', e);
+                alert('카메라 권한이 거부되었거나 장치를 찾을 수 없습니다.\n브라우저 설정(사이트 설정)에서 카메라 권한을 "허용"으로 변경한 뒤 새로고침해주세요.');
             }
         }
 

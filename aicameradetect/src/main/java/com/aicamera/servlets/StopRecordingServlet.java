@@ -46,10 +46,12 @@ public class StopRecordingServlet extends HttpServlet {
         String finalVideoPath = ConfigUtil.getFinalVideoPath();
         new File(finalVideoPath).mkdirs();
 
-        List<String> segmentFiles = new ArrayList<>();
-        Timestamp firstSegmentTime = null;
+            List<String> segmentFiles = new ArrayList<>();
+            Timestamp firstSegmentTime = null;
 
-        try (Connection conn = DBUtil.getConnection(getServletContext())) {
+
+
+           try (Connection conn = DBUtil.getConnection()) {
             // 1. 병합할 파일 목록 임시 DB에서 가져오기
             String selectSql = "SELECT segment_filename, created_at FROM temp_videos WHERE user_id = ? AND segment_filename LIKE ? ORDER BY segment_id ASC";
             try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {

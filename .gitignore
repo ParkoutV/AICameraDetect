@@ -1,3 +1,4 @@
 # 데이터베이스 접속 정보 제외
 src/main/webapp/WEB-INF/db.properties
 aicameradetect/src/main/webapp/db.properties
+aicameradetect/src/main/webapp/WEB-INF/db.properties

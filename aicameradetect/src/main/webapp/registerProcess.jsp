@@ -1,5 +1,5 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
-<%@ page import="java.sql.*, java.util.Properties, java.io.InputStream" %>
+<%@ page import="java.sql.*, com.aicamera.util.DBUtil" %>
 <%
     // 1. 인코딩 및 파라미터 수신
     request.setCharacterEncoding("UTF-8");
@@ -16,22 +16,12 @@
         return;
     }
     
-    // 3. 설정 파일(db.properties)에서 DB 접속 정보 읽어오기
-    Properties props = new Properties();
-    InputStream in = application.getResourceAsStream("/db.properties");
-    props.load(in);
-    
-    String dbUrl = props.getProperty("db.url");
-    String dbUser = props.getProperty("db.user");
-    String dbPw = props.getProperty("db.password");
-    
     Connection conn = null;
     PreparedStatement pstmt = null;
     boolean isSuccess = false;
     
     try {
-        Class.forName("com.mysql.cj.jdbc.Driver");
-        conn = DriverManager.getConnection(dbUrl, dbUser, dbPw);
+        conn = DBUtil.getConnection();
         
         String sql = "INSERT INTO users (user_id, user_pw, email) VALUES (?, ?, ?)";
         pstmt = conn.prepareStatement(sql);

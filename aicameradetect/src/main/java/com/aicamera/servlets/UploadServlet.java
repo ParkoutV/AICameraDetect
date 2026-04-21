@@ -76,7 +76,7 @@ public class UploadServlet extends HttpServlet {
         }
 
         // 임시 DB에 정보 저장
-        try (Connection conn = DBUtil.getConnection(getServletContext())) {
+        try (Connection conn = DBUtil.getConnection()) {
             String sql = "INSERT INTO temp_videos (user_id, segment_filename) VALUES (?, ?)";
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, userId);

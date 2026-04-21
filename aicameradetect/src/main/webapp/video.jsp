@@ -78,7 +78,7 @@
                 <tbody>
                     <%
                         int evtCount = 1;
-                        try (Connection conn = DBUtil.getConnection(application)) {
+                        try (Connection conn = DBUtil.getConnection()) {
                             // 최대 128개의 이벤트 영상을 시간순으로 가져옵니다.
                             String evtSql = "SELECT event_video_name, event_time FROM event_videos WHERE original_video_name = ? ORDER BY event_time ASC LIMIT 128";
                             try (PreparedStatement evtPstmt = conn.prepareStatement(evtSql)) {
@@ -130,7 +130,7 @@
                 <tbody>
                     <%
                         int count = 1;
-                        try (Connection conn = DBUtil.getConnection(application)) {
+                        try (Connection conn = DBUtil.getConnection()) {
                             // 현재 로그인한 사용자의 영상만 시간 역순(최신순)으로 가져옵니다.
                             String sql = "SELECT video_file_name, start_time, analysis_status FROM main_videos WHERE user_id = ? ORDER BY start_time DESC";
                             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
