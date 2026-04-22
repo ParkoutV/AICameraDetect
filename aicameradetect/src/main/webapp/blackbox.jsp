@@ -102,7 +102,6 @@
         const recordedList = document.getElementById('recordedList');
 
         let mediaRecorder;
-        let recordedChunks = [];
         let stream;
         let recordingInterval;
         let currentRecordingId;
@@ -167,26 +166,27 @@
             // 녹화가 중지되었다면(isRecording=false) 새 세그먼트를 시작하지 않습니다.
             if (!isRecording) return;
 
-            recordedChunks = [];
-            mediaRecorder = new MediaRecorder(stream);
+            const segmentChunks = []; // 각 세그먼트마다 독립적인 배열을 사용합니다.
+            const recorder = new MediaRecorder(stream);
+            mediaRecorder = recorder; // 전역 레코더 참조 업데이트
 
-            mediaRecorder.ondataavailable = event => {
+            recorder.ondataavailable = event => {
                 if (event.data.size > 0) {
-                    recordedChunks.push(event.data);
+                    segmentChunks.push(event.data);
                 }
             };
 
-            mediaRecorder.onstop = () => {
-                if (recordedChunks.length === 0) {
+            recorder.onstop = () => {
+                if (segmentChunks.length === 0) {
                     checkAndMerge();
                     return;
                 }
 
-                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const blob = new Blob(segmentChunks, { type: 'video/webm' });
                 uploadSegmentWithRetry(blob, currentRecordingId, segmentCounter++);
             };
 
-            mediaRecorder.start();
+            recorder.start();
             console.log('30초 녹화 세그먼트 시작:', new Date());
         }
 
