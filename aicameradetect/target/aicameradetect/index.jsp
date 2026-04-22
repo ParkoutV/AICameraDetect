@@ -3,15 +3,18 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Camera Detect - 시스템 로그인</title>
     <style>
         .login-container {
-            width: 320px;
-            margin: 100px auto;
+            width: 90%;
+            max-width: 350px;
+            margin: 10vh auto;
             padding: 30px;
             border: 1px solid #ddd;
             border-radius: 8px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            box-sizing: border-box;
         }
         .form-group {
             margin-bottom: 15px;

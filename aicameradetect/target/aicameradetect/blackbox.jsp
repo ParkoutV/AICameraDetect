@@ -4,10 +4,20 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>블랙박스 제어 - AI Camera Detect</title>
     <style>
-        body { font-family: sans-serif; }
-        .container { max-width: 800px; margin: 20px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+        body { 
+            font-family: sans-serif; 
+            margin: 0;
+        }
+        .container { 
+            width: 100%;
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            box-sizing: border-box;
+        }
         h1, h2 { text-align: center; }
         video {
             width: 100%;
@@ -44,6 +54,22 @@
             border-radius: 4px;
         }
         #recordedList a:hover { background-color: #e0e0e0; }
+
+        @media (min-width: 769px) {
+            .container {
+                margin-top: 20px;
+                margin-bottom: 20px;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+            }
+        }
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -138,6 +164,9 @@
                 mediaRecorder.stop();
             }
 
+            // 녹화가 중지되었다면(isRecording=false) 새 세그먼트를 시작하지 않습니다.
+            if (!isRecording) return;
+
             recordedChunks = [];
             mediaRecorder = new MediaRecorder(stream);
 
@@ -168,6 +197,12 @@
             formData.append('recordingId', recordingId);
             formData.append('segmentCounter', counter);
 
+            // 업로드 상태를 표시할 p 태그를 미리 생성합니다.
+            const p = document.createElement('p');
+            p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 시작...`;
+            p.style.fontStyle = 'italic';
+            recordedList.prepend(p);
+
             const attempt = (retryCount) => {
                 fetch('uploadSegment', {
                     method: 'POST',
@@ -179,9 +214,9 @@
                 })
                 .then(data => {
                     if(data.error) throw new Error(data.error);
-                    const p = document.createElement('p');
+                    // 미리 생성한 p 태그의 내용을 '완료' 상태로 업데이트합니다.
                     p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 완료: ${data.fileName}`;
-                    recordedList.prepend(p);
+                    p.style.fontStyle = 'normal';
                     
                     activeUploads--;
                     checkAndMerge();
@@ -191,10 +226,9 @@
                     
                     // 정지 후 1분 초과 시 무시. (업로드 대기 중(진행 중)이거나 setTimeout 중일 때는 여기까지 안 오므로 조건 충족)
                     if (isStopping && timeSinceStop > 60000) {
-                        const p = document.createElement('p');
                         p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 실패 후 무시됨 (정지 후 1분 초과): ${error.message}`;
                         p.style.color = 'red';
-                        recordedList.prepend(p);
+                        p.style.fontStyle = 'normal';
                         
                         activeUploads--;
                         checkAndMerge();
@@ -203,10 +237,9 @@
 
                     // 지수 백오프: 2^retryCount * 1000ms, 최대 120초
                     const delay = Math.min(1000 * Math.pow(2, retryCount), 120000);
-                    const p = document.createElement('p');
+                    // p 태그 내용을 '재시도' 상태로 업데이트합니다.
                     p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 실패, ${delay/1000}초 후 재시도...`;
                     p.style.color = 'orange';
-                    recordedList.prepend(p);
                     
                     setTimeout(() => attempt(retryCount + 1), delay);
                 });
@@ -253,6 +286,7 @@
         toggleBtn.onclick = async () => {
             if (isRecording) {
                 // 녹화 중지 로직
+                isRecording = false; // 플래그를 먼저 설정하여 경합 상태를 방지합니다.
                 toggleBtn.disabled = true;
                 toggleBtn.textContent = '저장 중...';
                 
@@ -261,16 +295,15 @@
                 toggleBtn.classList.remove('recording');
                 toggleBtn.textContent = '녹화 시작';
                 toggleBtn.disabled = false;
-                isRecording = false;
             } else {
                 // 녹화 시작 로직
                 if (!stream) {
                     alert('카메라 스트림이 준비되지 않았습니다. 잠시 후 다시 시도해주세요.');
                     return;
                 }
+                isRecording = true;
                 toggleBtn.classList.add('recording');
                 toggleBtn.textContent = '녹화 중지';
-                isRecording = true;
 
                 currentRecordingId = crypto.randomUUID(); // 새 녹화 세션마다 고유 ID 생성
                 segmentCounter = 1;
@@ -320,9 +353,9 @@
                     document.body.appendChild(overlay);
 
                     if (isRecording) {
+                        isRecording = false; // 플래그를 먼저 설정합니다.
                         toggleBtn.disabled = true;
                         await stopRecordingAndNotifyServer();
-                        isRecording = false; // 녹화 상태 해제
                     } else if (activeUploads > 0) {
                         // 이미 중지 버튼을 눌렀으나 업로드가 남은 경우 대기
                         await new Promise(resolve => {

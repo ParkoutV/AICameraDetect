@@ -1,5 +1,23 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
-<%@ page import="java.sql.*, com.aicamera.util.DBUtil" %>
+<%@ page import="java.sql.*, com.aicamera.util.DBUtil, java.security.MessageDigest" %>
+<%!
+    // SHA-256 해시 함수 선언
+    public String hashPassword(String password) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(password.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("비밀번호 해시 중 오류 발생", e);
+        }
+    }
+%>
 <%
     // 1. 인코딩 및 파라미터 수신
     request.setCharacterEncoding("UTF-8");
@@ -16,6 +34,9 @@
         return;
     }
     
+    // 비밀번호 암호화
+    String hashedPw = hashPassword(newPw);
+
     Connection conn = null;
     PreparedStatement pstmt = null;
     boolean isSuccess = false;
@@ -26,7 +47,7 @@
         String sql = "INSERT INTO users (user_id, user_pw, email) VALUES (?, ?, ?)";
         pstmt = conn.prepareStatement(sql);
         pstmt.setString(1, newId);
-        pstmt.setString(2, newPw);
+        pstmt.setString(2, hashedPw); // 해시화된 비밀번호 저장
         pstmt.setString(3, email);
         
         int result = pstmt.executeUpdate();

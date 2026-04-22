@@ -1,5 +1,23 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
-<%@ page import="java.sql.*, com.aicamera.util.DBUtil" %>
+<%@ page import="java.sql.*, com.aicamera.util.DBUtil, java.security.MessageDigest" %>
+<%!
+    // SHA-256 해시 함수 선언
+    public String hashPassword(String password) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(password.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("비밀번호 해시 중 오류 발생", e);
+        }
+    }
+%>
 <%
     // 1. 인코딩 및 파라미터 수신
     request.setCharacterEncoding("UTF-8");
@@ -8,6 +26,9 @@
     String userPw = request.getParameter("userPw");
     String accessType = request.getParameter("accessType");
     
+    // 사용자가 입력한 평문 비밀번호를 DB와 동일한 방식으로 해시화
+    String hashedPw = hashPassword(userPw);
+
     // 2. MySQL DB 연결 및 인증 로직
     boolean isLoginSuccess = false; 
     
@@ -21,7 +42,7 @@
         String sql = "SELECT * FROM users WHERE user_id = ? AND user_pw = ?";
         pstmt = conn.prepareStatement(sql);
         pstmt.setString(1, userId);
-        pstmt.setString(2, userPw);
+        pstmt.setString(2, hashedPw); // 해시화된 비밀번호로 비교
         
         rs = pstmt.executeQuery();
         if (rs.next()) {
