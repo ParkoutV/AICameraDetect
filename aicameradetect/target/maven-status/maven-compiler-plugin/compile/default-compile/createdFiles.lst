@@ -1,6 +1,0 @@
-com\aicamera\servlets\VideoServeServlet.class
-com\aicamera\util\ConfigUtil.class
-com\aicamera\servlets\UploadServlet.class
-com\aicamera\util\AppInitializer.class
-com\aicamera\util\DBUtil.class
-com\aicamera\servlets\StopRecordingServlet.class

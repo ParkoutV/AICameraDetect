@@ -2,6 +2,7 @@ package com.aicamera.servlets;
 
 import com.aicamera.util.DBUtil;
 import com.aicamera.util.ConfigUtil;
+import com.aicamera.util.GoogleDriveUtil;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -143,6 +144,10 @@ public class StopRecordingServlet extends HttpServlet {
                         insertPstmt.setTimestamp(3, firstSegmentTime);
                         insertPstmt.executeUpdate();
                     }
+
+                    // 백그라운드 스레드를 통해 Google Drive로 영상 업로드 (기타 로직과 충돌 차단)
+                    String absoluteFinalPath = new File(finalVideoPath, finalVideoName).getAbsolutePath();
+                    GoogleDriveUtil.uploadVideoAsync(absoluteFinalPath, finalVideoName);
                 } else {
                     System.err.println("FFmpeg 병합 실패 (그룹 " + (i+1) + "). Exit code: " + exitCode);
                     allSuccess = false;

@@ -5,3 +5,5 @@ aicameradetect/src/main/webapp/WEB-INF/db.properties
 
 # Maven 빌드 결과물 제외
 **/target/
+aicameradetect/target/aicameradetect/WEB-INF/db.properties
+aicameradetect/target/aicameradetect/WEB-INF/db.properties
