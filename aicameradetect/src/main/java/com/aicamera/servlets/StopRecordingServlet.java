@@ -13,9 +13,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.MultipartConfig;
@@ -47,14 +49,17 @@ public class StopRecordingServlet extends HttpServlet {
         String finalVideoPath = ConfigUtil.getFinalVideoPath();
         new File(finalVideoPath).mkdirs();
 
+        // 1번(조각 업로드 완료) 직후, 브라우저에게 성공 응답(200 OK)을 보내어 불필요한 대기와 통신을 즉시 종료시킵니다.
+        resp.setStatus(HttpServletResponse.SC_OK);
+
+        // 2번(병합)과 3번(드라이브 업로드) 과정을 백그라운드 스레드로 분리하여 브라우저 통신과 완전히 독립적으로 동작시킵니다.
+        CompletableFuture.runAsync(() -> {
             List<String> segmentFiles = new ArrayList<>();
             Timestamp firstSegmentTime = null;
 
-
-
            try (Connection conn = DBUtil.getConnection()) {
-            // 1. 병합할 파일 목록 임시 DB에서 가져오기
-            String selectSql = "SELECT segment_filename, created_at FROM temp_videos WHERE user_id = ? AND segment_filename LIKE ? ORDER BY segment_id ASC";
+                // 1. 병합할 파일 목록 임시 DB에서 가져오기
+                String selectSql = "SELECT segment_filename, created_at FROM temp_videos WHERE user_id = ? AND segment_filename LIKE ? ORDER BY segment_id ASC";
             try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
                 pstmt.setString(1, userId);
                 pstmt.setString(2, "%" + recordingId + "%");
@@ -147,7 +152,12 @@ public class StopRecordingServlet extends HttpServlet {
 
                     // 백그라운드 스레드를 통해 Google Drive로 영상 업로드 (기타 로직과 충돌 차단)
                     String absoluteFinalPath = new File(finalVideoPath, finalVideoName).getAbsolutePath();
-                    GoogleDriveUtil.uploadVideoAsync(absoluteFinalPath, finalVideoName);
+                    String driveFileName = finalVideoName;
+                    if (firstSegmentTime != null) {
+                        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
+                        driveFileName = sdf.format(firstSegmentTime) + "_" + finalVideoName;
+                    }
+                    GoogleDriveUtil.uploadVideoAsync(absoluteFinalPath, driveFileName);
                 } else {
                     System.err.println("FFmpeg 병합 실패 (그룹 " + (i+1) + "). Exit code: " + exitCode);
                     allSuccess = false;
@@ -171,5 +181,6 @@ public class StopRecordingServlet extends HttpServlet {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        });
     }
 }

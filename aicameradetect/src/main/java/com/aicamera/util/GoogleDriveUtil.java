@@ -12,11 +12,17 @@ import java.io.FileInputStream;
 import java.io.File;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class GoogleDriveUtil {
     private static Drive driveService;
 
-    public static Drive getDriveService() throws Exception {
+    // 구글 드라이브 업로드 전용 스레드 풀 생성 (최대 3개 동시 업로드, 나머지는 대기열 처리)
+    private static final ExecutorService uploadExecutor = Executors.newFixedThreadPool(3);
+
+    // 여러 스레드가 동시에 접근하여 driveService를 중복 생성하는 것을 방지하기 위해 synchronized 키워드 추가
+    public static synchronized Drive getDriveService() throws Exception {
         if (driveService == null) {
             // db.properties에서 서비스 계정 JSON 키 파일 경로 로드
             String credentialsFilePath = ConfigUtil.getProperty("gdrive.credentials.path", "");
@@ -39,6 +45,7 @@ public class GoogleDriveUtil {
 
     public static void uploadVideoAsync(String filePath, String fileName) {
         // 웹 응답 지연(Blocking) 방지를 위한 비동기 처리
+        // 기본 스레드 풀 고갈 방지를 위해 생성해둔 uploadExecutor(전용 풀)를 사용하도록 지정
         CompletableFuture.runAsync(() -> {
             try {
                 System.out.println("[GoogleDriveUtil] Google Drive 비동기 업로드 시작: " + fileName);
@@ -65,6 +72,6 @@ public class GoogleDriveUtil {
                 System.err.println("[GoogleDriveUtil] Google Drive 업로드 중 오류 발생: " + fileName);
                 e.printStackTrace();
             }
-        });
+        }, uploadExecutor);
     }
 }
