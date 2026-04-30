@@ -204,7 +204,8 @@
                 </table>
             </div>
             <hr style="margin-top: 30px;">
-            <a href="index.jsp" class="back-link">메인으로 돌아가기</a>
+            <a href="blackbox.jsp" class="back-link" style="color: #28a745; margin-bottom: 10px;">블랙박스 촬영 화면으로 이동</a>
+            <a href="index.jsp?auto=false" class="back-link">메인 화면으로 돌아가기</a>
         <% } %>
     </div>
 </body>

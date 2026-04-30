@@ -95,7 +95,8 @@
         
 
         <hr style="margin-top: 30px;">
-        <a href="index.jsp" style="display: block; text-align: center;">로그아웃 (메인으로 돌아가기)</a>
+        <a href="video.jsp" style="display: block; text-align: center; margin-bottom: 15px; color: #28a745; font-weight: bold; text-decoration: none;">영상 보관함으로 이동</a>
+        <a href="index.jsp?auto=false" style="display: block; text-align: center; color: #333; font-weight: bold; text-decoration: none;">메인 화면으로 돌아가기</a>
     </div>
 
     <!-- 커스텀 알림(모달) UI: 첫 방문 시 카메라 선택창 -->
