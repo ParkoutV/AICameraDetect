@@ -70,7 +70,7 @@
 <body>
     <div class="register-container">
         <h2 style="text-align: center;">시스템 회원가입</h2>
-        <form action="registerProcess.jsp" method="post" onsubmit="return validateForm()">
+        <form action="register" method="post" onsubmit="return validateForm()">
             <div class="form-group">
                 <label>아이디</label>
                 <div style="display: flex; gap: 10px;">
