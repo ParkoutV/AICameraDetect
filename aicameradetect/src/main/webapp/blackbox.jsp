@@ -98,6 +98,17 @@
         <a href="index.jsp" style="display: block; text-align: center;">로그아웃 (메인으로 돌아가기)</a>
     </div>
 
+    <!-- 커스텀 알림(모달) UI: 첫 방문 시 카메라 선택창 -->
+    <div id="cameraAlertOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999;">
+        <div style="background:white; padding:20px; border-radius:8px; text-align:center; color:black; width: 80%; max-width: 300px;">
+            <h3 style="margin-top:0;">카메라 선택</h3>
+            <p style="font-size: 14px; color: #555; word-break: keep-all;">녹화를 시작할 기본 카메라를 선택해주세요.</p>
+            <video id="alertPreviewVideo" playsinline autoplay muted style="width: 100%; height: 150px; background-color: #000; border-radius: 5px; margin-bottom: 15px; object-fit: cover;"></video>
+            <select id="alertCameraSelect" style="padding:10px; width:100%; margin-bottom:20px; box-sizing: border-box;"></select>
+            <button id="alertCameraBtn" style="padding:10px 20px; background-color:#007BFF; color:white; border:none; border-radius:5px; cursor:pointer; width: 100%;">확인 및 녹화 시작</button>
+        </div>
+    </div>
+
     <script>
         const videoSelect = document.getElementById('videoSource');
         const videoElement = document.getElementById('video');
@@ -330,11 +341,66 @@
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 
                 await getCameras(); // 권한을 획득했으므로 카메라 이름(Label)도 정상적으로 가져옵니다.
-                await startVideo(); // 선택된 정확한 장치 ID를 이용해 스트림 재시작
                 
-                // 카메라 스트림이 성공적으로 준비되었다면 즉시 자동 녹화 시작
-                if (stream && !isRecording) {
-                    toggleBtn.click();
+                // 3. 로컬 스토리지에서 마지막으로 사용한 카메라 ID 불러오기
+                const savedCameraId = localStorage.getItem('lastCameraId');
+                
+                // 저장된 카메라가 현재 연결된 장치 목록에 실제로 존재하는지 검증
+                const isCameraAvailable = Array.from(videoSelect.options).some(opt => opt.value === savedCameraId);
+
+                if (savedCameraId && isCameraAvailable) {
+                    videoSelect.value = savedCameraId;
+                    await startVideo(); // 선택된 장치 ID를 이용해 스트림 재시작
+                    
+                    if (stream && !isRecording) {
+                        toggleBtn.click();
+                    }
+                } else {
+                    // 처음 방문이거나, 이전에 썼던 카메라가 뽑혀있는 경우 알림(모달) 띄우기
+                    // 기존 권한 획득용 임시 스트림을 종료하여 카메라 장치 사용 충돌 방지
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                        stream = null;
+                    }
+
+                    const overlay = document.getElementById('cameraAlertOverlay');
+                    const alertSelect = document.getElementById('alertCameraSelect');
+                    const alertBtn = document.getElementById('alertCameraBtn');
+                    const alertPreview = document.getElementById('alertPreviewVideo');
+                    
+                    // 메인 선택 박스의 옵션들을 알림창으로 복사
+                    alertSelect.innerHTML = videoSelect.innerHTML;
+                    overlay.style.display = 'flex';
+                    
+                    let previewStream = null;
+                    // 선택한 카메라의 미리보기 스트림을 띄우는 함수
+                    const updatePreview = async () => {
+                        if (previewStream) previewStream.getTracks().forEach(t => t.stop());
+                        try {
+                            previewStream = await navigator.mediaDevices.getUserMedia({
+                                video: { deviceId: alertSelect.value ? { exact: alertSelect.value } : undefined }
+                            });
+                            alertPreview.srcObject = previewStream;
+                        } catch (e) {
+                            console.error('미리보기 스트림 오류:', e);
+                        }
+                    };
+                    updatePreview(); // 모달이 켜질 때 최초 미리보기 실행
+                    alertSelect.onchange = updatePreview; // 드롭다운 변경 시 미리보기 업데이트
+
+                    alertBtn.onclick = async () => {
+                        if (previewStream) previewStream.getTracks().forEach(t => t.stop()); // 미리보기 스트림 완전 종료
+                        
+                        const selectedId = alertSelect.value;
+                        localStorage.setItem('lastCameraId', selectedId); // 선택한 카메라 내부 저장소에 기억
+                        videoSelect.value = selectedId;
+                        overlay.style.display = 'none';
+                        
+                        await startVideo();
+                        if (stream && !isRecording) {
+                            toggleBtn.click();
+                        }
+                    };
                 }
             } catch (e) {
                 console.error('카메라 권한 오류:', e);
@@ -385,7 +451,12 @@
             }
         });
 
-        videoSelect.onchange = startVideo;
+        // 카메라(Select Box)를 직접 변경할 때도 마지막 카메라를 내부 저장소에 업데이트
+        videoSelect.addEventListener('change', async () => {
+            localStorage.setItem('lastCameraId', videoSelect.value);
+            await startVideo();
+        });
+
         init();
     </script>
 </body>
