@@ -15,7 +15,9 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -45,17 +47,23 @@ public class StopRecordingServlet extends HttpServlet {
             return;
         }
 
-        String tempVideoPath = ConfigUtil.getTempVideoPath();
-        String finalVideoPath = ConfigUtil.getFinalVideoPath();
-        new File(finalVideoPath).mkdirs();
-
         // 1번(조각 업로드 완료) 직후, 브라우저에게 성공 응답(200 OK)을 보내어 불필요한 대기와 통신을 즉시 종료시킵니다.
         resp.setStatus(HttpServletResponse.SC_OK);
 
         // 2번(병합)과 3번(드라이브 업로드) 과정을 백그라운드 스레드로 분리하여 브라우저 통신과 완전히 독립적으로 동작시킵니다.
         CompletableFuture.runAsync(() -> {
+            processAndMergeSegments(userId, recordingId);
+        });
+    }
+
+    public static void processAndMergeSegments(String userId, String recordingId) {
+        System.out.println("[Watchdog/Merge] " + userId + "의 녹화 ID " + recordingId + "에 대한 병합 작업을 시작합니다.");
+        String tempVideoPath = ConfigUtil.getTempVideoPath();
+        String finalVideoPath = ConfigUtil.getFinalVideoPath();
+        new File(finalVideoPath).mkdirs();
+
             List<String> segmentFiles = new ArrayList<>();
-            Timestamp firstSegmentTime = null;
+            Map<String, Timestamp> segmentTimes = new HashMap<>();
 
            try (Connection conn = DBUtil.getConnection()) {
                 // 1. 병합할 파일 목록 임시 DB에서 가져오기
@@ -65,14 +73,17 @@ public class StopRecordingServlet extends HttpServlet {
                 pstmt.setString(2, "%" + recordingId + "%");
                 ResultSet rs = pstmt.executeQuery();
                 while (rs.next()) {
-                    segmentFiles.add(rs.getString("segment_filename"));
-                    if (firstSegmentTime == null) {
-                        firstSegmentTime = rs.getTimestamp("created_at");
-                    }
+                    String filename = rs.getString("segment_filename");
+                    segmentFiles.add(filename);
+                    // 각 파일 조각들의 생성 시간을 Map에 모두 저장해 둡니다.
+                    segmentTimes.put(filename, rs.getTimestamp("created_at"));
                 }
             }
 
-            if (segmentFiles.isEmpty()) return;
+        if (segmentFiles.isEmpty()) {
+            System.out.println("[Watchdog/Merge] 처리할 세그먼트가 없습니다. 작업을 종료합니다. (ID: " + recordingId + ")");
+            return;
+        }
 
             // DB 저장 순서(segment_id)가 네트워크 지연 등으로 실제 촬영 순서와 다를 수 있으므로
             // 파일명 맨 끝에 있는 카운터(인덱스) 번호를 추출하여 오름차순으로 정확히 정렬합니다.
@@ -114,6 +125,9 @@ public class StopRecordingServlet extends HttpServlet {
             for (int i = 0; i < groups.size(); i++) {
                 List<String> group = groups.get(i);
                 
+                // 현재 병합할 그룹의 제일 '첫 번째' 파일의 시간을 가져옵니다.
+                Timestamp groupStartTime = segmentTimes.get(group.get(0));
+                
                 File listFile = new File(tempVideoPath, userId + "_" + recordingId + "_group" + i + "_mylist.txt");
                 try (PrintWriter writer = new PrintWriter(listFile)) {
                     for (String fileName : group) {
@@ -146,16 +160,16 @@ public class StopRecordingServlet extends HttpServlet {
                     try (PreparedStatement insertPstmt = conn.prepareStatement(insertSql)) {
                         insertPstmt.setString(1, userId);
                         insertPstmt.setString(2, finalVideoName);
-                        insertPstmt.setTimestamp(3, firstSegmentTime);
+                        insertPstmt.setTimestamp(3, groupStartTime);
                         insertPstmt.executeUpdate();
                     }
 
                     // 백그라운드 스레드를 통해 Google Drive로 영상 업로드 (기타 로직과 충돌 차단)
                     String absoluteFinalPath = new File(finalVideoPath, finalVideoName).getAbsolutePath();
                     String driveFileName = finalVideoName;
-                    if (firstSegmentTime != null) {
+                    if (groupStartTime != null) {
                         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
-                        driveFileName = sdf.format(firstSegmentTime) + "_" + finalVideoName;
+                        driveFileName = sdf.format(groupStartTime) + "_" + finalVideoName;
                     }
                     GoogleDriveUtil.uploadVideoAsync(absoluteFinalPath, driveFileName);
                 } else {
@@ -176,11 +190,12 @@ public class StopRecordingServlet extends HttpServlet {
                 for (String fileName : segmentFiles) {
                     new File(tempVideoPath, fileName).delete();
                 }
+            System.out.println("[Watchdog/Merge] 임시 파일 및 DB 데이터 정리 완료. (ID: " + recordingId + ")");
             }
 
         } catch (Exception e) {
+        System.err.println("[Watchdog/Merge] 병합 작업 중 심각한 오류 발생 (ID: " + recordingId + ")");
             e.printStackTrace();
         }
-        });
     }
 }

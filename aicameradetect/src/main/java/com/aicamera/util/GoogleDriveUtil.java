@@ -5,10 +5,9 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
 import com.google.auth.http.HttpCredentialsAdapter;
-import com.google.auth.oauth2.GoogleCredentials;
+import com.google.auth.oauth2.UserCredentials;
 import com.google.api.client.http.FileContent;
 
-import java.io.FileInputStream;
 import java.io.File;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
@@ -24,14 +23,20 @@ public class GoogleDriveUtil {
     // 여러 스레드가 동시에 접근하여 driveService를 중복 생성하는 것을 방지하기 위해 synchronized 키워드 추가
     public static synchronized Drive getDriveService() throws Exception {
         if (driveService == null) {
-            // db.properties에서 서비스 계정 JSON 키 파일 경로 로드
-            String credentialsFilePath = ConfigUtil.getProperty("gdrive.credentials.path", "");
-            if (credentialsFilePath.isEmpty()) {
-                throw new IllegalArgumentException("gdrive.credentials.path 설정이 db.properties에 없습니다.");
+            // db.properties에서 OAuth 2.0 인증 정보 로드
+            String clientId = ConfigUtil.getProperty("gdrive.client.id", "");
+            String clientSecret = ConfigUtil.getProperty("gdrive.client.secret", "");
+            String refreshToken = ConfigUtil.getProperty("gdrive.refresh.token", "");
+
+            if (clientId.isEmpty() || clientSecret.isEmpty() || refreshToken.isEmpty()) {
+                throw new IllegalArgumentException("OAuth 2.0 인증 정보(gdrive.client.id, secret, refresh.token)가 db.properties에 없습니다.");
             }
 
-            GoogleCredentials credentials = GoogleCredentials.fromStream(new FileInputStream(credentialsFilePath))
-                    .createScoped(Collections.singleton(DriveScopes.DRIVE_FILE));
+            UserCredentials credentials = UserCredentials.newBuilder()
+                    .setClientId(clientId)
+                    .setClientSecret(clientSecret)
+                    .setRefreshToken(refreshToken)
+                    .build();
 
             driveService = new Drive.Builder(
                     GoogleNetHttpTransport.newTrustedTransport(),

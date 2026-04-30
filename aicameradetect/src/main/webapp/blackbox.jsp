@@ -88,8 +88,11 @@
             <button id="toggleBtn">녹화 시작</button>
         </div>
 
-        <h2>업로드된 영상 조각 로그</h2>
-        <div id="recordedList"></div>
+        <details>
+            <summary>영상 조각 로그</summary>
+            <div id="recordedList"></div>
+        </details>
+        
 
         <hr style="margin-top: 30px;">
         <a href="index.jsp" style="display: block; text-align: center;">로그아웃 (메인으로 돌아가기)</a>
