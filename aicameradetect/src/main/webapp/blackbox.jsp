@@ -127,6 +127,38 @@
         let stopTime = null;    // 녹화 중지 시간 기록
         let mergeResolve = null; // 병합 완료 대기용 Promise
         let isIntentionalNavigation = false; // 안전한 페이지 이동 상태 플래그
+        let wakeLock = null;     // 화면 꺼짐 방지 객체
+
+        // 화면 꺼짐 방지(Wake Lock) 요청
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('화면 꺼짐 방지(Wake Lock) 활성화');
+                } catch (err) {
+                    console.error(`Wake Lock 오류: ${err.name}, ${err.message}`);
+                }
+            } else {
+                console.warn('이 브라우저는 Wake Lock API를 지원하지 않습니다.');
+            }
+        }
+
+        // 화면 꺼짐 방지(Wake Lock) 해제
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release().then(() => {
+                    wakeLock = null;
+                    console.log('화면 꺼짐 방지(Wake Lock) 해제');
+                });
+            }
+        }
+
+        // 탭 전환 등으로 화면이 숨겨졌다가 다시 나타날 때 Wake Lock 재적용
+        document.addEventListener('visibilitychange', async () => {
+            if (document.visibilityState === 'visible' && isRecording) {
+                await requestWakeLock();
+            }
+        });
 
         // 1. 사용 가능한 카메라 장치 목록 가져오기
         async function getCameras() {
@@ -307,6 +339,7 @@
                 
                 await stopRecordingAndNotifyServer();
                 
+                releaseWakeLock(); // 녹화 중지 시 화면 꺼짐 방지 해제
                 toggleBtn.classList.remove('recording');
                 toggleBtn.textContent = '녹화 시작';
                 toggleBtn.disabled = false;
@@ -323,6 +356,7 @@
                 currentRecordingId = crypto.randomUUID(); // 새 녹화 세션마다 고유 ID 생성
                 segmentCounter = 1;
 
+                requestWakeLock(); // 녹화 시작 시 화면 꺼짐 방지 활성화
                 startRecordingSegment(); // 즉시 첫 녹화 시작
                 recordingInterval = setInterval(startRecordingSegment, 30000);
                 console.log("녹화를 시작합니다.");
