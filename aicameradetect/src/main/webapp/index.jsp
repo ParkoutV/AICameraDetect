@@ -201,6 +201,8 @@
     </div>
 
     <script>
+        let loginTimerInterval; // bfcache 복원 시 타이머 완전 종료를 위해 전역 변수로 선언
+
         // 로그인 폼 제출 시 입력 정보 내부 저장소에 저장 (자동 로그인 용도)
         function saveLoginInfo() {
             localStorage.setItem('savedUserId', document.querySelector('input[name="userId"]').value);
@@ -210,7 +212,15 @@
 
         // 페이지 로드 시 URL 파라미터를 확인하여 에러 메시지를 표시합니다.
         document.addEventListener('DOMContentLoaded', () => {
+            const navEntry = performance.getEntriesByType("navigation")[0];
+            const isBackForward = navEntry && navEntry.type === 'back_forward';
             const urlParams = new URLSearchParams(window.location.search);
+            const preventAuto = urlParams.get('auto') === 'false';
+
+            if (preventAuto) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
             if (urlParams.has('error')) {
                 const errorType = urlParams.get('error');
                 if (errorType === 'true') {
@@ -233,7 +243,7 @@
 
                 // 알림 후 URL에서 에러 파라미터를 제거하여 새로고침 시 알림이 다시 뜨지 않도록 합니다.
                 window.history.replaceState({}, document.title, window.location.pathname);
-            } else {
+            } else if (!preventAuto && !isBackForward) {
                 // 에러 없이 정상적으로 로그인 창에 들어온 경우 (자동 로그인 대상)
                 const savedUserId = localStorage.getItem('savedUserId');
                 const savedUserPw = localStorage.getItem('savedUserPw');
@@ -258,7 +268,7 @@
                     };
 
                     const cancelAutoLogin = () => {
-                        clearInterval(timerInterval);
+                        clearInterval(loginTimerInterval);
                         overlay.style.display = 'none';
                         
                         // 모달 취소 시 화면 폼에 기존 아이디 세팅
@@ -267,18 +277,18 @@
                     };
 
                     // 1초마다 카운트다운 타이머
-                    const timerInterval = setInterval(() => {
+                    loginTimerInterval = setInterval(() => {
                         timeLeft--;
                         timerSpan.textContent = timeLeft;
                         if (timeLeft <= 0) {
-                            clearInterval(timerInterval);
+                            clearInterval(loginTimerInterval);
                             doAutoLogin();
                         }
                     }, 1000);
 
                     // 버튼 및 백그라운드 클릭 이벤트 등록
                     document.getElementById('confirmAutoLoginBtn').onclick = () => {
-                        clearInterval(timerInterval);
+                        clearInterval(loginTimerInterval);
                         doAutoLogin();
                     };
                     
@@ -299,6 +309,7 @@
                 if (overlay) {
                     overlay.style.display = 'none';
                 }
+                if (loginTimerInterval) clearInterval(loginTimerInterval); // 백그라운드 타이머 강제 중지
             }
         });
     </script>
