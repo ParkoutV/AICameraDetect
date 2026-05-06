@@ -21,37 +21,40 @@
     <title>실시간 영상 확인 - AI Camera Detect</title>
     <style>
         body { 
-            font-family: sans-serif; 
-            background-color: #f4f4f4; 
+            font-family: 'Noto Sans KR', sans-serif; 
+            background-color: #F0F8FF; 
             margin: 0;
             padding: 10px; 
             box-sizing: border-box;
+            color: #1A2B4C;
         }
         .container { 
             width: 100%;
             max-width: 900px; 
             margin: 0 auto; 
-            background: #fff; 
+            background: #FFFFFF; 
             padding: 20px; 
-            border-radius: 8px; 
-            box-shadow: 0 0 10px rgba(0,0,0,0.1); 
+            border-radius: 12px; 
+            border: 1px solid #87CEFA;
+            box-shadow: 0 4px 15px rgba(26, 43, 76, 0.08); 
             box-sizing: border-box;
         }
-        h1, h2 { text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
-        th { background-color: #e3f2fd; }
-        .btn { display: inline-block; padding: 6px 12px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; }
-        .btn:hover { background-color: #0056b3; }
+        h1, h2 { text-align: center; color: #00A2E8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 8px; overflow: hidden; }
+        th, td { border: 1px solid #E1F5FE; padding: 12px; text-align: center; }
+        th { background-color: #00A2E8; color: white; font-weight: bold; }
+        td { background-color: #FAFCFF; }
+        .btn { display: inline-block; padding: 8px 14px; background-color: #00A2E8; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; transition: 0.2s; }
+        .btn:hover { background-color: #007BB5; }
         .video-container { text-align: center; margin-top: 20px; }
-        video { width: 100%; max-width: 800px; border: 2px solid #333; background: #000; border-radius: 8px; }
-        .back-link { display: block; margin-top: 20px; text-align: center; font-weight: bold; color: #333; text-decoration: none; }
-        .back-link:hover { text-decoration: underline; }
+        video { width: 100%; max-width: 800px; border: 3px solid #2C3E50; background: #000; border-radius: 8px; }
+        .back-link { display: block; margin-top: 20px; text-align: center; font-weight: bold; color: #2C3E50; text-decoration: none; }
+        .back-link:hover { color: #00A2E8; text-decoration: underline; }
         .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
         @media (max-width: 768px) {
             body { padding: 0; }
-            .container { padding: 15px; border-radius: 0; box-shadow: none; }
+            .container { padding: 15px; border-radius: 0; box-shadow: none; border: none; }
             h1 { font-size: 1.5em; }
             h2 { font-size: 1.3em; }
             th, td { padding: 8px; font-size: 0.9em; white-space: nowrap; }

@@ -144,6 +144,8 @@ public class StopRecordingServlet extends HttpServlet {
                     "-safe", "0",
                     "-i", listFile.getAbsolutePath(),
                     "-c:v", "libx264",
+                    "-crf", "18", // 화질 열화 최소화 (숫자가 낮을수록 고화질, 보통 17~23 사용)
+                    "-preset", "fast", // 인코딩 속도 최적화
                     "-c:a", "aac",
                     new File(finalVideoPath, finalVideoName).getAbsolutePath()
                 );

@@ -8,21 +8,27 @@
     <title>블랙박스 제어 - AI Camera Detect</title>
     <style>
         body { 
-            font-family: sans-serif; 
+            font-family: 'Noto Sans KR', sans-serif; 
+            background-color: #F0F8FF;
             margin: 0;
+            color: #1A2B4C;
         }
         .container { 
             width: 100%;
             max-width: 800px; 
             margin: 0 auto; 
             padding: 20px; 
+            background-color: #FFFFFF;
             box-sizing: border-box;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
-        h1, h2 { text-align: center; }
+        h1, h2 { text-align: center; color: #00A2E8; }
         video {
             width: 100%;
             background-color: #000;
-            border: 1px solid #ddd;
+            border: 2px solid #87CEFA;
+            border-radius: 8px;
             margin-top: 15px;
         }
         .controls {
@@ -31,44 +37,38 @@
             align-items: center;
             margin: 20px 0;
         }
-        .controls label { font-weight: bold; }
-        .controls select { padding: 5px; }
+        .controls label { font-weight: bold; color: #2C3E50; }
+        .controls select { padding: 8px; border-radius: 6px; border: 1px solid #B3D4FF; }
         .buttons button {
             padding: 10px 20px;
             font-size: 16px;
+            font-weight: bold;
             cursor: pointer;
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
             color: white;
+            transition: background-color 0.3s;
         }
-        #toggleBtn { background-color: #28a745; } /* 녹화 시작 (기본) */
-        #toggleBtn.recording { background-color: #dc3545; } /* 녹화 중지 */
-        #toggleBtn:disabled { background-color: #999; }
+        #toggleBtn { background-color: #00A2E8; } 
+        #toggleBtn.recording { background-color: #FFB6C1; color: #1A2B4C; }
+        #toggleBtn:disabled { background-color: #A0B2C6; }
         #recordedList a {
             display: block;
-            padding: 8px;
+            padding: 10px;
             margin-top: 5px;
-            background-color: #f0f0f0;
+            background-color: #E1F5FE;
             text-decoration: none;
-            color: #333;
-            border-radius: 4px;
+            color: #1A2B4C;
+            border-radius: 6px;
+            border-left: 4px solid #00A2E8;
         }
-        #recordedList a:hover { background-color: #e0e0e0; }
+        #recordedList a:hover { background-color: #B3E5FC; }
 
         @media (min-width: 769px) {
-            .container {
-                margin-top: 20px;
-                margin-bottom: 20px;
-                border: 1px solid #ccc;
-                border-radius: 8px;
-            }
+            .container { margin-top: 20px; margin-bottom: 20px; border: 1px solid #87CEFA; }
         }
         @media (max-width: 768px) {
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 10px;
-            }
+            .controls { flex-direction: column; align-items: stretch; gap: 10px; }
         }
     </style>
 </head>
@@ -126,6 +126,7 @@
         let activeUploads = 0;  // 현재 진행 중인 업로드 수
         let stopTime = null;    // 녹화 중지 시간 기록
         let mergeResolve = null; // 병합 완료 대기용 Promise
+        let currentBitrate = 5000000; // 가변 비트레이트 초기값: 5Mbps (최대화질)
         let isIntentionalNavigation = false; // 안전한 페이지 이동 상태 플래그
         let wakeLock = null;     // 화면 꺼짐 방지 객체
 
@@ -186,7 +187,11 @@
             }
             const deviceId = videoSelect.value;
             const constraints = {
-                video: { deviceId: deviceId ? { exact: deviceId } : undefined }
+            video: { 
+                deviceId: deviceId ? { exact: deviceId } : undefined,
+                width: { ideal: 1920 }, // Full HD 해상도 가로 픽셀 요청
+                height: { ideal: 1080 } // Full HD 해상도 세로 픽셀 요청
+            }
             };
 
             try {
@@ -214,7 +219,9 @@
             if (!isRecording) return;
 
             const segmentChunks = []; // 각 세그먼트마다 독립적인 배열을 사용합니다.
-            const recorder = new MediaRecorder(stream);
+            const recorder = new MediaRecorder(stream, {
+                videoBitsPerSecond: currentBitrate // 네트워크 상태에 따른 유동적인 비트레이트 적용
+            });
             mediaRecorder = recorder; // 전역 레코더 참조 업데이트
 
             recorder.ondataavailable = event => {
@@ -250,6 +257,8 @@
             p.style.fontStyle = 'italic';
             recordedList.prepend(p);
 
+            const startTime = Date.now(); // 업로드 소요 시간 측정을 위한 시작 시간 기록
+
             const attempt = (retryCount) => {
                 fetch('uploadSegment', {
                     method: 'POST',
@@ -261,8 +270,20 @@
                 })
                 .then(data => {
                     if(data.error) throw new Error(data.error);
-                    // 미리 생성한 p 태그의 내용을 '완료' 상태로 업데이트합니다.
-                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 완료: ${data.fileName}`;
+                    
+                    // 네트워크 상태 기반 화질(비트레이트) 자동 조절 로직
+                    const uploadDuration = (Date.now() - startTime) / 1000; // 업로드 소요 시간(초)
+                    if (uploadDuration > 25) { 
+                        // 30초 분량 영상인데 업로드에 25초 이상 걸림 (네트워크 느림 -> 화질 하향)
+                        // 신호등 색, 차선 식별을 위해 최소 2Mbps(2000000 bps)는 방어선으로 유지합니다.
+                        currentBitrate = Math.max(2000000, currentBitrate - 1000000);
+                    } else if (uploadDuration < 15) {
+                        // 업로드에 15초 미만 걸림 (네트워크 여유 있음 -> 화질 상향)
+                        currentBitrate = Math.min(5000000, currentBitrate + 1000000);
+                    }
+
+                    // 완료 상태 업데이트 및 현재 비트레이트 상태 표기
+                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 완료 (소요시간: ${uploadDuration.toFixed(1)}초, 적용 화질: ${(currentBitrate/1000000).toFixed(1)}Mbps)`;
                     p.style.fontStyle = 'normal';
                     
                     activeUploads--;

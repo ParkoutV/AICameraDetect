@@ -6,64 +6,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Camera Detect - 회원가입</title>
     <style>
-        .register-container {
+        body {
+            background-color: #F0F8FF;
+            font-family: 'Noto Sans KR', sans-serif;
+            color: #1A2B4C;
+        }
+        .login-container, .register-container {
             width: 90%;
             max-width: 350px;
             margin: 10vh auto;
             padding: 30px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: rgba(255, 255, 255, 0.95);
+            border: 2px solid #87CEFA; 
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(26, 43, 76, 0.15);
             box-sizing: border-box;
         }
         .form-group {
             margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-size: 14px;
-            font-weight: bold;
         }
         .form-group input[type="text"],
         .form-group input[type="password"],
         .form-group input[type="email"] {
             width: 100%;
             padding: 10px;
+            border: 1px solid #B3D4FF;
+            border-radius: 6px;
             box-sizing: border-box;
         }
         .submit-btn {
             width: 100%;
             padding: 10px;
-            background-color: #28a745;
+            background-color: #00A2E8;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 16px;
+            font-weight: bold;
         }
         .submit-btn:hover {
-            background-color: #218838;
+            background-color: #007BB5;
         }
         .check-btn {
             padding: 10px;
-            background-color: #6c757d;
+            background-color: #2C3E50;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
             white-space: nowrap;
             box-sizing: border-box;
         }
-        .check-btn:hover { background-color: #5a6268; }
+        .check-btn:hover { background-color: #1A252F; }
         .back-link {
             display: block;
             text-align: center;
             margin-top: 15px;
             text-decoration: none;
-            color: #007BFF;
+            color: #00A2E8;
             font-size: 14px;
+            font-weight: bold;
         }
     </style>
 </head>
