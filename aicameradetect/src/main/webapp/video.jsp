@@ -100,8 +100,9 @@
                 <table>
                     <thead>
                         <tr>
-                            <th width="15%">순번</th>
-                            <th width="50%">발생(촬영) 시간</th>
+                            <th width="10%">순번</th>
+                            <th width="35%">발생(촬영) 시간</th>
+                            <th width="20%">이벤트 사유</th>
                             <th width="35%">이벤트 영상 확인</th>
                         </tr>
                     </thead>
@@ -110,7 +111,7 @@
                             int evtCount = 1;
                             try (Connection conn = DBUtil.getConnection()) {
                                 // 최대 128개의 이벤트 영상을 시간순으로 가져옵니다.
-                                String evtSql = "SELECT event_video_name, event_time FROM event_videos WHERE original_video_name = ? ORDER BY event_time ASC LIMIT 128";
+                                String evtSql = "SELECT event_video_name, event_time, event_case FROM event_videos WHERE original_video_name = ? ORDER BY event_time ASC LIMIT 128";
                                 try (PreparedStatement evtPstmt = conn.prepareStatement(evtSql)) {
                                     evtPstmt.setString(1, eventsFor);
                                     try (ResultSet evtRs = evtPstmt.executeQuery()) {
@@ -119,10 +120,17 @@
                                             hasEvtData = true;
                                             String evtFileName = evtRs.getString("event_video_name");
                                             Timestamp evtTime = evtRs.getTimestamp("event_time");
+                                            int evtCase = evtRs.getInt("event_case");
+                                            String evtReason = "알 수 없음";
+                                            if (evtCase == 1) evtReason = "신호 위반";
+                                            else if (evtCase == 2) evtReason = "차선 위반";
+                                            else if (evtCase == 3) evtReason = "속도 위반";
+                                            else if (evtCase > 0) evtReason = "기타 위반 (" + evtCase + ")";
                         %>
                                         <tr>
                                             <td><%= evtCount++ %></td>
                                             <td><%= evtTime != null ? evtTime.toString() : "기록 없음" %></td>
+                                            <td style="font-weight: bold; color: #dc3545;"><%= evtReason %></td>
                                             <td>
                                                 <a href="video.jsp?play=<%= evtFileName %>&backTo=<%= eventsFor %>" class="btn" style="background-color: #ff9800;">▶ 이벤트 영상 보기</a>
                                             </td>
@@ -131,7 +139,7 @@
                                         }
                                         if (!hasEvtData) {
                         %>
-                                        <tr><td colspan="3">감지된 교통위반 사항이 없습니다.</td></tr>
+                                        <tr><td colspan="4">감지된 교통위반 사항이 없습니다.</td></tr>
                         <%
                                         }
                                     }
@@ -174,19 +182,25 @@
                                             String fileName = rs.getString("video_file_name");
                                             Timestamp startTime = rs.getTimestamp("start_time");
                                             String status = rs.getString("analysis_status");
+                                            
+                                            String statusColor = "orange";
+                                            if ("분석 완료".equals(status)) statusColor = "red";
+                                            else if ("이벤트 없음".equals(status)) statusColor = "green";
                         %>
                                         <tr>
                                             <td><%= count++ %></td>
                                             <td><%= startTime != null ? startTime.toString() : "기록 없음" %></td>
-                                            <td style='font-weight: bold; color: <%= "완료".equals(status) ? "green" : "orange" %>;'>
+                                            <td style='font-weight: bold; color: <%= statusColor %>;'>
                                                 <%= status != null ? status : "알 수 없음" %>
                                             </td>
                                             <td>
                                                 <a href="video.jsp?play=<%= fileName %>" class="btn">▶ 원본 재생</a>
                                             </td>
                                             <td>
-                                                <% if ("완료".equals(status)) { %>
+                                                <% if ("분석 완료".equals(status)) { %>
                                                     <a href="video.jsp?eventsFor=<%= fileName %>" class="btn" style="background-color: #dc3545; font-size: 0.9em;">🚨 이벤트 보기</a>
+                                                <% } else if ("이벤트 없음".equals(status)) { %>
+                                                    <span style="color: green; font-weight: bold; font-size: 0.9em;">위반 없음</span>
                                                 <% } else { %>
                                                     <span style="color: #999; font-size: 0.9em;">-</span>
                                                 <% } %>

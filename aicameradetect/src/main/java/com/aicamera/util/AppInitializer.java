@@ -1,6 +1,7 @@
 package com.aicamera.util;
 
 import com.aicamera.tasks.TempVideoWatchdogTask;
+import com.aicamera.tasks.AnalyzedReportTask;
 
 import java.util.concurrent.TimeUnit;
 import javax.servlet.ServletContextEvent;
@@ -21,6 +22,8 @@ public class AppInitializer implements ServletContextListener {
         schedulerService = new SchedulerService();
         // 1분 후에 시작하여, 매 1분마다 주기적으로 실행 (타임아웃 감지는 Task 내부에서 5분으로 처리)
         schedulerService.scheduleTask(new TempVideoWatchdogTask(), 1, 1, TimeUnit.MINUTES);
+        // 2분 후에 시작하여, 매 1분마다 주기적으로 분석 결과 XML을 폴링
+        schedulerService.scheduleTask(new AnalyzedReportTask(), 2, 1, TimeUnit.MINUTES);
     }
 
     @Override

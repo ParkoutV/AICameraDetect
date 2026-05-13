@@ -127,6 +127,7 @@
         let stopTime = null;    // 녹화 중지 시간 기록
         let mergeResolve = null; // 병합 완료 대기용 Promise
         let currentBitrate = 5000000; // 가변 비트레이트 초기값: 5Mbps (최대화질)
+        let consecutiveOptimalUploads = 0; // 연속으로 빠르고 재시도 없이 성공한 횟수
         let isIntentionalNavigation = false; // 안전한 페이지 이동 상태 플래그
         let wakeLock = null;     // 화면 꺼짐 방지 객체
 
@@ -237,6 +238,7 @@
                 }
 
                 const blob = new Blob(segmentChunks, { type: 'video/webm' });
+                segmentChunks.length = 0; // 배열 명시적 초기화 (RAM 메모리 즉시 회수 힌트)
                 uploadSegmentWithRetry(blob, currentRecordingId, segmentCounter++);
             };
 
@@ -246,10 +248,6 @@
 
         function uploadSegmentWithRetry(blob, recordingId, counter) {
             activeUploads++;
-            const formData = new FormData();
-            formData.append('video', blob, 'segment.webm');
-            formData.append('recordingId', recordingId);
-            formData.append('segmentCounter', counter);
 
             // 업로드 상태를 표시할 p 태그를 미리 생성합니다.
             const p = document.createElement('p');
@@ -257,9 +255,14 @@
             p.style.fontStyle = 'italic';
             recordedList.prepend(p);
 
-            const startTime = Date.now(); // 업로드 소요 시간 측정을 위한 시작 시간 기록
-
             const attempt = (retryCount) => {
+                // 재시도할 때마다 FormData를 새로 생성하여 메모리 누수 방지
+                const formData = new FormData();
+                formData.append('video', blob, 'segment.webm');
+                formData.append('recordingId', recordingId);
+                formData.append('segmentCounter', counter);
+
+                const fetchStartTime = Date.now(); // 각 시도별 실제 소요 시간 측정용
                 fetch('uploadSegment', {
                     method: 'POST',
                     body: formData
@@ -272,21 +275,34 @@
                     if(data.error) throw new Error(data.error);
                     
                     // 네트워크 상태 기반 화질(비트레이트) 자동 조절 로직
-                    const uploadDuration = (Date.now() - startTime) / 1000; // 업로드 소요 시간(초)
-                    if (uploadDuration > 25) { 
-                        // 30초 분량 영상인데 업로드에 25초 이상 걸림 (네트워크 느림 -> 화질 하향)
-                        // 신호등 색, 차선 식별을 위해 최소 2Mbps(2000000 bps)는 방어선으로 유지합니다.
+                    const uploadDuration = (Date.now() - fetchStartTime) / 1000; // 마지막 시도의 실제 업로드 소요 시간(초)
+
+                    if (retryCount >= 2) {
+                        // 2회 이상 재시도하여 성공한 경우 (catch 블록에서 이미 화질을 내렸으므로 유지)
+                        consecutiveOptimalUploads = 0;
+                    } else if (uploadDuration > 25) { 
+                        // 단일 업로드 시도에 25초 이상 걸림 (네트워크 느림 -> 화질 하향)
+                        // 신호등 색, 차선 식별을 위해 최소 2Mbps(2000000 bps)는 방어선으로 유지
                         currentBitrate = Math.max(2000000, currentBitrate - 1000000);
-                    } else if (uploadDuration < 15) {
-                        // 업로드에 15초 미만 걸림 (네트워크 여유 있음 -> 화질 상향)
-                        currentBitrate = Math.min(5000000, currentBitrate + 1000000);
+                        consecutiveOptimalUploads = 0;
+                    } else if (retryCount === 0 && uploadDuration < 15) {
+                        // 재시도 없이 한 번에 성공하고, 시간도 15초 미만 (네트워크 매우 원활 -> 연속 성공 카운트 증가)
+                        consecutiveOptimalUploads++;
+                        if (consecutiveOptimalUploads >= 2) {
+                            currentBitrate = Math.min(5000000, currentBitrate + 1000000);
+                            consecutiveOptimalUploads = 0; // 화질 상향 후 카운트 초기화
+                        }
+                    } else {
+                        // 재시도를 1번 했거나, 시간이 15~25초 걸린 경우 (보통 상태)
+                        consecutiveOptimalUploads = 0;
                     }
 
                     // 완료 상태 업데이트 및 현재 비트레이트 상태 표기
-                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 완료 (소요시간: ${uploadDuration.toFixed(1)}초, 적용 화질: ${(currentBitrate/1000000).toFixed(1)}Mbps)`;
+                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 완료 (소요시간: ${uploadDuration.toFixed(1)}초, 재시도: ${retryCount}회, 적용 화질: ${(currentBitrate/1000000).toFixed(1)}Mbps)`;
                     p.style.fontStyle = 'normal';
                     
                     activeUploads--;
+                    blob = null; // 업로드 성공 시 Blob 참조 강제 해제 (디스크 임시 파일 즉시 삭제 유도)
                     checkAndMerge();
                 })
                 .catch(error => {
@@ -299,14 +315,21 @@
                         p.style.fontStyle = 'normal';
                         
                         activeUploads--;
+                        blob = null; // 업로드 영구 포기 시에도 참조 강제 해제
                         checkAndMerge();
                         return;
+                    }
+
+                    // 2회 연속 실패 시(최초 실패 후 1번 재시도마저 실패) 즉시 화질 하향
+                    if (retryCount === 1) {
+                        currentBitrate = Math.max(2000000, currentBitrate - 1000000);
+                        consecutiveOptimalUploads = 0;
                     }
 
                     // 지수 백오프: 2^retryCount * 1000ms, 최대 120초
                     const delay = Math.min(1000 * Math.pow(2, retryCount), 120000);
                     // p 태그 내용을 '재시도' 상태로 업데이트합니다.
-                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 실패, ${delay/1000}초 후 재시도...`;
+                    p.textContent = `[${new Date().toLocaleTimeString()}] 세그먼트 ${counter} 업로드 실패(${retryCount + 1}회), ${delay/1000}초 후 재시도...`;
                     p.style.color = 'orange';
                     
                     setTimeout(() => attempt(retryCount + 1), delay);

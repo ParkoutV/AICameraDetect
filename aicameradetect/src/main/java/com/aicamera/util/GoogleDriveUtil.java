@@ -9,7 +9,12 @@ import com.google.auth.oauth2.UserCredentials;
 import com.google.api.client.http.FileContent;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,5 +83,46 @@ public class GoogleDriveUtil {
                 e.printStackTrace();
             }
         }, uploadExecutor);
+    }
+
+    public static List<com.google.api.services.drive.model.File> findFilesByExtension(String folderId, String extension) throws Exception {
+        Drive drive = getDriveService();
+        String query = "'" + folderId + "' in parents and name contains '" + extension + "' and trashed = false";
+        return drive.files().list()
+                .setQ(query)
+                .setFields("files(id, name)")
+                .execute()
+                .getFiles();
+    }
+
+    public static com.google.api.services.drive.model.File findFileByName(String folderId, String fileName) throws Exception {
+        Drive drive = getDriveService();
+        String query = "'" + folderId + "' in parents and name = '" + fileName + "' and trashed = false";
+        List<com.google.api.services.drive.model.File> files = drive.files().list()
+                .setQ(query)
+                .setFields("files(id, name)")
+                .execute()
+                .getFiles();
+        if (files != null && !files.isEmpty()) {
+            return files.get(0); // 가장 첫 번째 일치하는 파일 반환
+        }
+        return null;
+    }
+
+    public static InputStream downloadFileAsStream(String fileId) throws Exception {
+        Drive drive = getDriveService();
+        return drive.files().get(fileId).executeMediaAsInputStream();
+    }
+
+    public static void downloadFile(String fileId, File destination) throws Exception {
+        Drive drive = getDriveService();
+        try (OutputStream outputStream = new FileOutputStream(destination)) {
+            drive.files().get(fileId).executeMediaAndDownloadTo(outputStream);
+        }
+    }
+
+    public static void deleteFile(String fileId) throws Exception {
+        Drive drive = getDriveService();
+        drive.files().delete(fileId).execute();
     }
 }
