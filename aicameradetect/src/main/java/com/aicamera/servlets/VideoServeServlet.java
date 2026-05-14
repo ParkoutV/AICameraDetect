@@ -18,6 +18,7 @@ public class VideoServeServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String fileName = req.getParameter("file");
+        String fileType = req.getParameter("type"); // main 또는 event
         
         System.out.println("\n[VideoServeServlet] --- Video serving request started ---");
         System.out.println("[VideoServeServlet] Requested file parameter: " + fileName);
@@ -33,8 +34,14 @@ public class VideoServeServlet extends HttpServlet {
             return;
         }
 
-        System.out.println("[VideoServeServlet] Fetching final_videos path from ConfigUtil.");
-        String basePath = ConfigUtil.getFinalVideoPath();
+        String basePath;
+        if ("event".equals(fileType)) {
+            System.out.println("[VideoServeServlet] Fetching event_videos path.");
+            basePath = ConfigUtil.getProperty("path.event_videos", "C:\\aicamera_uploads\\event_videos");
+        } else {
+            System.out.println("[VideoServeServlet] Fetching final_videos path.");
+            basePath = ConfigUtil.getFinalVideoPath();
+        }
         System.out.println("[VideoServeServlet] Base folder path: " + basePath);
 
         File videoFile = new File(basePath, fileName);

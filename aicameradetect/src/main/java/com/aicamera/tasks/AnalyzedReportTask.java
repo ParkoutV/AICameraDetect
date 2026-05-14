@@ -107,8 +107,12 @@ public class AnalyzedReportTask implements Runnable {
                     try {
                         com.google.api.services.drive.model.File driveVideoFile = GoogleDriveUtil.findFileByName(folderId, event.videoName);
                         if (driveVideoFile != null) {
-                            String finalPath = ConfigUtil.getFinalVideoPath();
-                            File localVideo = new File(finalPath, event.videoName);
+                            // db.properties의 path.event_videos 경로를 읽어옵니다. (없을 경우 기본값 설정)
+                            String eventPath = ConfigUtil.getProperty("path.event_videos", "C:\\aicamera_uploads\\event_videos");
+                            File eventDir = new File(eventPath);
+                            if (!eventDir.exists()) eventDir.mkdirs(); // 폴더가 없으면 생성
+                            
+                            File localVideo = new File(eventPath, event.videoName);
                             System.out.println("[AnalyzedReportTask] 이벤트 영상 다운로드 시작: " + event.videoName);
                             GoogleDriveUtil.downloadFile(driveVideoFile.getId(), localVideo);
                             
@@ -182,16 +186,9 @@ public class AnalyzedReportTask implements Runnable {
             }
             pstmt.setTimestamp(3, eventTime);
 
-            // 이벤트 케이스 매핑
-            int eventCase = 0;
-            if (event.typeStr != null) {
-                if (event.typeStr.contains("신호")) eventCase = 1;
-                else if (event.typeStr.contains("차선")) eventCase = 2;
-                else if (event.typeStr.contains("속도")) eventCase = 3;
-                else if (event.typeStr.matches("\\d+")) eventCase = Integer.parseInt(event.typeStr);
-                else eventCase = 4; // 기타
-            }
-            pstmt.setInt(4, eventCase);
+            // 이벤트 케이스 매핑 (VARCHAR 형태로 단순화)
+            String eventCase = (event.typeStr != null && !event.typeStr.isEmpty()) ? event.typeStr : "기타";
+            pstmt.setString(4, eventCase);
             pstmt.setString(5, event.details);
 
             pstmt.executeUpdate();

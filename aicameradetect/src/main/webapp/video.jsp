@@ -10,6 +10,8 @@
     
     // 파라미터로 특정 파일명이 넘어오면 '재생 모드'로 간주합니다.
     String playFile = request.getParameter("play");
+    // 이름 충돌 방지를 위해 영상의 타입을 명시적으로 받습니다. (main 또는 event)
+    String playType = request.getParameter("type");
     // 파라미터로 원본 파일명이 넘어오면 '위반 내역 목록 모드'로 간주합니다.
     String eventsFor = request.getParameter("eventsFor");
 %>
@@ -52,6 +54,11 @@
         .back-link:hover { color: #00A2E8; text-decoration: underline; }
         .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
+        .playback-wrapper { display: flex; flex-direction: row; gap: 20px; align-items: flex-start; margin-top: 20px; }
+        .video-section { flex: 2; text-align: center; }
+        .video-section video { width: 100%; max-width: 800px; border: 3px solid #2C3E50; background: #000; border-radius: 8px; }
+        .info-section { flex: 1; width: 100%; }
+
         @media (max-width: 768px) {
             body { padding: 0; }
             .container { padding: 15px; border-radius: 0; box-shadow: none; border: none; }
@@ -59,6 +66,8 @@
             h2 { font-size: 1.3em; }
             th, td { padding: 8px; font-size: 0.9em; white-space: nowrap; }
             .btn { padding: 5px 10px; font-size: 0.9em; }
+            .playback-wrapper { flex-direction: column; }
+            .event-desc-cell { white-space: normal !important; word-break: keep-all; }
         }
     </style>
 </head>
@@ -67,19 +76,73 @@
         <h1>내 블랙박스 보관함</h1>
         <p style="text-align: center;">로그인 사용자: <strong style="color:#0d47a1; font-size:1.1em;"><%= userId %></strong></p>
 
-        <% if (playFile != null && !playFile.trim().isEmpty()) { %>
+        <% 
+            if (playFile != null && !playFile.trim().isEmpty()) { 
+                String eventTimeStr = "";
+                String eventCaseStr = "";
+                String eventDescStr = "";
+                boolean isEventVideo = "event".equals(playType);
+
+                // 재생하려는 영상이 명시적으로 '이벤트 영상'으로 요청되었을 때만 상세 정보를 가져옵니다.
+                if (isEventVideo) {
+                    try (Connection conn = DBUtil.getConnection()) {
+                        String sql = "SELECT event_time, event_case, event_desc FROM event_videos WHERE event_video_name = ?";
+                        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                            pstmt.setString(1, playFile);
+                            try (ResultSet rs = pstmt.executeQuery()) {
+                                if (rs.next()) {
+                                    Timestamp evtTime = rs.getTimestamp("event_time");
+                                    eventTimeStr = evtTime != null ? evtTime.toString() : "기록 없음";
+                                    eventCaseStr = rs.getString("event_case");
+                                    if (eventCaseStr == null || eventCaseStr.trim().isEmpty()) eventCaseStr = "알 수 없음";
+                                    eventDescStr = rs.getString("event_desc");
+                                    if (eventDescStr == null || eventDescStr.trim().isEmpty()) eventDescStr = "상세 설명이 없습니다.";
+                                }
+                            }
+                        }
+                    } catch (Exception e) { e.printStackTrace(); }
+                }
+        %>
             <!-- ============================== -->
             <!-- 1. 비디오 재생 화면 (play 파라미터가 있을 때) -->
             <!-- ============================== -->
             <h2>영상 재생</h2>
+            
+            <% if (isEventVideo) { %>
+            <div class="playback-wrapper">
+                <div class="video-section">
+                    <video controls autoplay>
+                        <source src="serveVideo?file=<%= playFile %>&type=<%= playType %>" type="video/mp4">
+                        브라우저가 비디오 태그를 지원하지 않습니다.
+                    </video>
+                </div>
+                <div class="info-section">
+                    <table style="margin-top: 0;">
+                        <tr>
+                            <th width="35%">발생 시간</th>
+                            <td width="65%"><%= eventTimeStr %></td>
+                        </tr>
+                        <tr>
+                            <th>위반 사유</th>
+                            <td style="font-weight: bold; color: #dc3545;"><%= eventCaseStr %></td>
+                        </tr>
+                        <tr>
+                            <th colspan="2">이벤트 상세 설명</th>
+                        </tr>
+                        <tr>
+                            <td colspan="2" class="event-desc-cell" style="text-align: left; padding: 15px; line-height: 1.6; background-color: #F8F9FA;"><%= eventDescStr %></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <% } else { %>
             <div class="video-container">
-                <!-- 브라우저 내장 비디오 플레이어 (controls 속성으로 탐색 기능 제공) -->
                 <video controls autoplay>
-                    <!-- 앞에서 만든 VideoServeServlet을 통해 로컬의 영상을 스트리밍으로 받아옵니다. -->
-                    <source src="serveVideo?file=<%= playFile %>" type="video/mp4">
+                    <source src="serveVideo?file=<%= playFile %>&type=<%= playType %>" type="video/mp4">
                     브라우저가 비디오 태그를 지원하지 않습니다.
                 </video>
             </div>
+            <% } %>
             
             <% 
                 String backTo = request.getParameter("backTo");
@@ -120,19 +183,15 @@
                                             hasEvtData = true;
                                             String evtFileName = evtRs.getString("event_video_name");
                                             Timestamp evtTime = evtRs.getTimestamp("event_time");
-                                            int evtCase = evtRs.getInt("event_case");
-                                            String evtReason = "알 수 없음";
-                                            if (evtCase == 1) evtReason = "신호 위반";
-                                            else if (evtCase == 2) evtReason = "차선 위반";
-                                            else if (evtCase == 3) evtReason = "속도 위반";
-                                            else if (evtCase > 0) evtReason = "기타 위반 (" + evtCase + ")";
+                                        String evtCase = evtRs.getString("event_case");
+                                        String evtReason = (evtCase != null && !evtCase.trim().isEmpty()) ? evtCase : "알 수 없음";
                         %>
                                         <tr>
                                             <td><%= evtCount++ %></td>
                                             <td><%= evtTime != null ? evtTime.toString() : "기록 없음" %></td>
                                             <td style="font-weight: bold; color: #dc3545;"><%= evtReason %></td>
                                             <td>
-                                                <a href="video.jsp?play=<%= evtFileName %>&backTo=<%= eventsFor %>" class="btn" style="background-color: #ff9800;">▶ 이벤트 영상 보기</a>
+                                                <a href="video.jsp?play=<%= evtFileName %>&type=event&backTo=<%= eventsFor %>" class="btn" style="background-color: #ff9800;">▶ 이벤트 영상 보기</a>
                                             </td>
                                         </tr>
                         <%
@@ -194,7 +253,7 @@
                                                 <%= status != null ? status : "알 수 없음" %>
                                             </td>
                                             <td>
-                                                <a href="video.jsp?play=<%= fileName %>" class="btn">▶ 원본 재생</a>
+                                                <a href="video.jsp?play=<%= fileName %>&type=main" class="btn">▶ 원본 재생</a>
                                             </td>
                                             <td>
                                                 <% if ("분석 완료".equals(status)) { %>
