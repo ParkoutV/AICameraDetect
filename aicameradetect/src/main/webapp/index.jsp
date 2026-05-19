@@ -300,11 +300,13 @@
 
                     const cancelAutoLogin = () => {
                         clearInterval(loginTimerInterval);
-                        overlay.style.display = 'none';
-                        
-                        // 모달 취소 시 화면 폼에 기존 아이디 세팅
-                        document.querySelector('input[name="userId"]').value = savedUserId;
-                        document.querySelector(`input[name="accessType"][value="${savedAccessType}"]`).checked = true;
+                        ySelector('form');
+                        const stayInput = document.createElement('input');
+                        stayInput.type = 'hidden';
+                        stayInput.name = 'stay';
+                        stayInput.value = 'true';
+                        form.appendChild(stayInput);
+                        form.submit();
                     };
 
                     // 1초마다 카운트다운 타이머

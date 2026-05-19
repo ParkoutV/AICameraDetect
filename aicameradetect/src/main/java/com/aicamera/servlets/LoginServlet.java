@@ -23,6 +23,7 @@ public class LoginServlet extends HttpServlet {
         String userId = req.getParameter("userId");
         String userPw = req.getParameter("userPw");
         String accessType = req.getParameter("accessType");
+        String stay = req.getParameter("stay");
 
         String dbPasswordHash = null;
 
@@ -52,7 +53,9 @@ public class LoginServlet extends HttpServlet {
             HttpSession newSession = req.getSession(true);
             newSession.setAttribute("userId", userId);
 
-            if ("blackbox".equals(accessType)) {
+            if ("true".equals(stay)) {
+                resp.sendRedirect("index.jsp?auto=false");
+            } else if ("blackbox".equals(accessType)) {
                 resp.sendRedirect("blackbox.jsp");
             } else {
                 resp.sendRedirect("video.jsp"); // video.jsp 또는 다른 기본 페이지
