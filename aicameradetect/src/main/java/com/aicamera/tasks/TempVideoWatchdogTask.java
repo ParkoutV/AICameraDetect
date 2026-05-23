@@ -19,8 +19,6 @@ import java.util.concurrent.CompletableFuture;
  */
 public class TempVideoWatchdogTask implements Runnable {
 
-    private static final Set<String> processingIds = new HashSet<>();
-
     // 세션 정보를 담기 위한 내부 클래스
     private static class SessionInfo {
         String userId;
@@ -72,22 +70,10 @@ public class TempVideoWatchdogTask implements Runnable {
             for (SessionInfo info : sessions.values()) {
                 // 마지막 업데이트 시간으로부터 5분이 지났는지 확인
                 if ((now - info.lastUpdatedAt) > fiveMinutesInMillis) {
-                    String uniqueProcessingId = info.userId + ":" + info.recordingId;
+                    System.out.println("[Watchdog] 5분 이상 업데이트 없는 녹화 ID(" + info.recordingId + ")를 발견했습니다. 강제 병합을 시도합니다.");
 
-                    synchronized (processingIds) {
-                        if (processingIds.contains(uniqueProcessingId)) continue;
-                        processingIds.add(uniqueProcessingId);
-                    }
-
-                    System.out.println("[Watchdog] 5분 이상 업데이트 없는 녹화 ID(" + info.recordingId + ")를 발견했습니다. 강제 병합을 시작합니다.");
-
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            StopRecordingServlet.processAndMergeSegments(info.userId, info.recordingId);
-                        } finally {
-                            synchronized (processingIds) { processingIds.remove(uniqueProcessingId); }
-                        }
-                    });
+                    // 공용 스레드 고갈 및 스케줄러 멈춤을 방지하기 위해, 안전하게 구성된 전용 병합 풀로 작업을 넘깁니다.
+                    StopRecordingServlet.submitMergeTask(info.userId, info.recordingId);
                 }
             }
         } catch (Exception e) {

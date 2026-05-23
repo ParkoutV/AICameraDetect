@@ -20,6 +20,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.MultipartConfig;
@@ -32,6 +37,12 @@ import javax.servlet.http.HttpSession;
 @WebServlet("/stopRecording")
 @MultipartConfig // 클라이언트에서 FormData를 beacon으로 보낼 때, 이를 파싱하기 위해 필요합니다.
 public class StopRecordingServlet extends HttpServlet {
+
+    // 현재 병합이 진행 중인 세션을 전역으로 추적하여 중복 병합을 방지하는 동기화 Set
+    private static final Set<String> activeMergeTasks = Collections.synchronizedSet(new HashSet<>());
+
+    // FFmpeg 병합 전용 스레드 풀 (공용 스레드 고갈 방지, 한 번에 최대 3개까지만 동시 병합)
+    private static final ExecutorService mergeExecutor = Executors.newFixedThreadPool(3);
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -51,12 +62,26 @@ public class StopRecordingServlet extends HttpServlet {
         resp.setStatus(HttpServletResponse.SC_OK);
 
         // 2번(병합)과 3번(드라이브 업로드) 과정을 백그라운드 스레드로 분리하여 브라우저 통신과 완전히 독립적으로 동작시킵니다.
+        submitMergeTask(userId, recordingId);
+    }
+
+    // Servlet과 Watchdog 모두 이 메서드를 통해 안전하게 전용 풀에 작업을 위임합니다.
+    public static void submitMergeTask(String userId, String recordingId) {
         CompletableFuture.runAsync(() -> {
             processAndMergeSegments(userId, recordingId);
-        });
+        }, mergeExecutor);
     }
 
     public static void processAndMergeSegments(String userId, String recordingId) {
+        String uniqueId = userId + ":" + recordingId;
+        
+        // 1. 전역 Lock: 이미 병합 중이라면 실행 거부 (Servlet 호출과 Watchdog 호출 동시 제어)
+        if (!activeMergeTasks.add(uniqueId)) {
+            System.out.println("[Watchdog/Merge] 이미 병합 작업이 진행 중입니다. 중복 실행을 차단합니다. (ID: " + recordingId + ")");
+            return;
+        }
+
+        try {
         System.out.println("[Watchdog/Merge] " + userId + "의 녹화 ID " + recordingId + "에 대한 병합 작업을 시작합니다.");
         String tempVideoPath = ConfigUtil.getTempVideoPath();
         String finalVideoPath = ConfigUtil.getFinalVideoPath();
@@ -140,11 +165,13 @@ public class StopRecordingServlet extends HttpServlet {
                 System.out.println("FFmpeg 병합을 시작합니다 (그룹 " + (i+1) + "/" + groups.size() + "): " + userId);
                 ProcessBuilder pb = new ProcessBuilder(
                     "ffmpeg",
+                    "-y", // 덮어쓰기 허용 (에러 시 프롬프트가 떠서 멈추는 현상 방지)
                     "-f", "concat",
                     "-safe", "0",
                     "-i", listFile.getAbsolutePath(),
-                    "-c:v", "libx264",
-                    "-crf", "18", // 화질 열화 최소화 (숫자가 낮을수록 고화질, 보통 17~23 사용)
+                    "-r", "30", // VFR로 인한 1000fps 인식 오류 방지를 위해 강제로 30fps로 고정
+                    "-c:v", "h264_qsv", // 인텔 퀵싱크 하드웨어 코덱 사용
+                    "-global_quality", "23", // libx264의 crf와 비슷한 역할 (숫자가 낮을수록 고화질)
                     "-preset", "fast", // 인코딩 속도 최적화
                     "-c:a", "aac",
                     new File(finalVideoPath, finalVideoName).getAbsolutePath()
@@ -181,8 +208,8 @@ public class StopRecordingServlet extends HttpServlet {
                 listFile.delete();
             }
 
-            // 4. 모든 병합이 성공했을 경우 임시 DB 및 파일 일괄 삭제
             if (allSuccess) {
+                // 4. 모든 병합이 성공했을 경우에만 임시 DB 및 파일 일괄 삭제
                 String deleteSql = "DELETE FROM temp_videos WHERE user_id = ? AND segment_filename LIKE ?";
                 try (PreparedStatement deletePstmt = conn.prepareStatement(deleteSql)) {
                     deletePstmt.setString(1, userId);
@@ -192,12 +219,16 @@ public class StopRecordingServlet extends HttpServlet {
                 for (String fileName : segmentFiles) {
                     new File(tempVideoPath, fileName).delete();
                 }
-            System.out.println("[Watchdog/Merge] 임시 파일 및 DB 데이터 정리 완료. (ID: " + recordingId + ")");
+                System.out.println("[Watchdog/Merge] 임시 파일 및 DB 데이터 정리 완료. (ID: " + recordingId + ")");
             }
 
+            } // 👈 빠져있던 try (Connection conn = DBUtil.getConnection()) 블록 닫는 괄호
         } catch (Exception e) {
         System.err.println("[Watchdog/Merge] 병합 작업 중 심각한 오류 발생 (ID: " + recordingId + ")");
             e.printStackTrace();
+        } finally {
+            // 2. Lock 해제: 성공/실패/Exception 여부와 상관없이 작업이 끝나면 Lock을 무조건 반환합니다.
+            activeMergeTasks.remove(uniqueId);
         }
     }
 }

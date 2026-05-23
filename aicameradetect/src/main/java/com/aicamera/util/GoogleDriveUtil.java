@@ -7,9 +7,12 @@ import com.google.api.services.drive.DriveScopes;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.UserCredentials;
 import com.google.api.client.http.FileContent;
+import com.google.api.client.http.InputStreamContent;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -72,12 +75,21 @@ public class GoogleDriveUtil {
                 fileMetadata.setParents(Collections.singletonList(folderId)); // 대상 폴더 지정
 
                 File uploadFile = new File(filePath);
-                FileContent mediaContent = new FileContent("video/mp4", uploadFile);
 
-                com.google.api.services.drive.model.File file = drive.files().create(fileMetadata, mediaContent)
-                        .setFields("id")
-                        .execute();
-                System.out.println("[GoogleDriveUtil] Google Drive 업로드 완료. File ID: " + file.getId());
+                // 80 Mbps (초당 약 10MB) 속도 제한 설정
+                long maxBytesPerSec = 10_000_000L;
+
+                try (InputStream fileIn = new FileInputStream(uploadFile);
+                     InputStream throttledIn = new ThrottledInputStream(fileIn, maxBytesPerSec)) {
+                    
+                    InputStreamContent mediaContent = new InputStreamContent("video/mp4", throttledIn);
+                    mediaContent.setLength(uploadFile.length()); // 진행률 관리 및 API 최적화를 위해 파일 크기 명시
+
+                    com.google.api.services.drive.model.File file = drive.files().create(fileMetadata, mediaContent)
+                            .setFields("id")
+                            .execute();
+                    System.out.println("[GoogleDriveUtil] Google Drive 업로드 완료. File ID: " + file.getId());
+                }
             } catch (Exception e) {
                 System.err.println("[GoogleDriveUtil] Google Drive 업로드 중 오류 발생: " + fileName);
                 e.printStackTrace();
@@ -124,5 +136,58 @@ public class GoogleDriveUtil {
     public static void deleteFile(String fileId) throws Exception {
         Drive drive = getDriveService();
         drive.files().delete(fileId).execute();
+    }
+
+    /**
+     * 업로드 속도 제한(Throttling)을 위한 커스텀 InputStream
+     */
+    private static class ThrottledInputStream extends InputStream {
+        private final InputStream in;
+        private final long maxBytesPerSec;
+        private long bytesRead = 0;
+        private final long startTime = System.currentTimeMillis();
+
+        public ThrottledInputStream(InputStream in, long maxBytesPerSec) {
+            this.in = in;
+            this.maxBytesPerSec = maxBytesPerSec;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = in.read();
+            if (b != -1) throttle(1);
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int read = in.read(b, off, len);
+            if (read > 0) throttle(read);
+            return read;
+        }
+
+        private void throttle(long bytes) throws IOException {
+            bytesRead += bytes;
+            long elapsed = System.currentTimeMillis() - startTime;
+            long expectedTime = (bytesRead * 1000L) / maxBytesPerSec;
+            if (elapsed < expectedTime) {
+                try {
+                    Thread.sleep(expectedTime - elapsed);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("업로드 속도 조절 중 스레드 인터럽트 발생", e);
+                }
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            in.close();
+        }
+
+        @Override
+        public int available() throws IOException {
+            return in.available();
+        }
     }
 }
