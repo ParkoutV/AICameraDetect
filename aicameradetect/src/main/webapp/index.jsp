@@ -300,13 +300,21 @@
 
                     const cancelAutoLogin = () => {
                         clearInterval(loginTimerInterval);
-                        ySelector('form');
+                        
+                        // 취소 시에도 로그인은 진행하되, 저장된 정보로 폼을 세팅합니다.
+                        document.querySelector('input[name="userId"]').value = savedUserId;
+                        document.querySelector('input[name="userPw"]').value = savedUserPw;
+                        document.querySelector(`input[name="accessType"][value="${savedAccessType}"]`).checked = true;
+                        
+                        // 로그인 성공 후 다른 페이지로 넘어가지 않고 대기 화면(index.jsp)에 머물도록 stay 파라미터 추가
+                        const form = document.querySelector('form');
                         const stayInput = document.createElement('input');
                         stayInput.type = 'hidden';
                         stayInput.name = 'stay';
                         stayInput.value = 'true';
                         form.appendChild(stayInput);
-                        form.submit();
+                        
+                        form.submit(); // 강제 전송
                     };
 
                     // 1초마다 카운트다운 타이머
