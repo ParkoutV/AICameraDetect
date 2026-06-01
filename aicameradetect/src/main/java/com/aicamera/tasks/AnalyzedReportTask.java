@@ -13,6 +13,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -165,25 +166,47 @@ public class AnalyzedReportTask implements Runnable {
     }
 
     private void insertEventVideoDB(String originalVideoName, EventInfo event) {
-        // 서브 쿼리를 통해 구글 드라이브 업로드용 파일명에서 순수 영상 파일명(video_file_name)을 추출하여 매핑합니다.
-        String sql = "INSERT INTO event_videos (original_video_name, event_video_name, event_time, event_case, event_desc) VALUES ((SELECT video_file_name FROM main_videos WHERE ? LIKE CONCAT('%', video_file_name) LIMIT 1), ?, ?, ?, ?)";
+        String actualVideoName = originalVideoName;
+        Timestamp startTime = null;
+
+        // 1. main_videos 테이블에서 실제 video_file_name과 start_time을 먼저 조회합니다.
+        String selectSql = "SELECT video_file_name, start_time FROM main_videos WHERE ? LIKE CONCAT('%', video_file_name) LIMIT 1";
         try (Connection conn = DBUtil.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
-            pstmt.setString(1, originalVideoName);
-            pstmt.setString(2, event.videoName);
-            
-            // 시간 파싱
-            Timestamp eventTime = null;
-            if (event.timeStr != null) {
-                try {
-                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
-                    Date parsedDate = sdf.parse(event.timeStr);
-                    eventTime = new Timestamp(parsedDate.getTime());
-                } catch (Exception e) {
-                    eventTime = new Timestamp(System.currentTimeMillis());
+             PreparedStatement selectPstmt = conn.prepareStatement(selectSql)) {
+            selectPstmt.setString(1, originalVideoName);
+            try (ResultSet rs = selectPstmt.executeQuery()) {
+                if (rs.next()) {
+                    actualVideoName = rs.getString("video_file_name");
+                    startTime = rs.getTimestamp("start_time");
                 }
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // 2. 이벤트 시간 계산: DB의 start_time + XML에서 전달된 EventTime (실수형 초단위, 내림 처리)
+            Timestamp eventTime = null;
+        if (startTime != null && event.timeStr != null) {
+            try {
+                double parsedSeconds = Double.parseDouble(event.timeStr);
+                long additionalSeconds = (long) Math.floor(parsedSeconds); // 소수점 내림 처리하여 정수로 취급
+                eventTime = new Timestamp(startTime.getTime() + (additionalSeconds * 1000));
+            } catch (NumberFormatException e) {
+                eventTime = new Timestamp(startTime.getTime());
+            }
+        } else if (startTime != null) {
+            eventTime = new Timestamp(startTime.getTime());
+        } else {
+            eventTime = new Timestamp(System.currentTimeMillis());
+            }
+
+        // 3. event_videos 테이블에 등록
+        String insertSql = "INSERT INTO event_videos (original_video_name, event_video_name, event_time, event_case, event_desc) VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+            
+            pstmt.setString(1, actualVideoName);
+            pstmt.setString(2, event.videoName);
             pstmt.setTimestamp(3, eventTime);
 
             // 이벤트 케이스 매핑 (VARCHAR 형태로 단순화)

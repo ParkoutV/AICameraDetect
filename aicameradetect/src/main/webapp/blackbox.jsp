@@ -1,5 +1,11 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
-<% String userId = (String) session.getAttribute("userId"); %>
+<% 
+    String userId = (String) session.getAttribute("userId"); 
+    if (userId == null) {
+        response.sendRedirect("index.jsp");
+        return;
+    }
+%>
 <!DOCTYPE html> 
 <html lang="ko">
 <head>
@@ -74,31 +80,65 @@
 </head>
 <body>
     <div class="container">
-        <h1>차량 블랙박스 시스템 (<%= userId != null ? userId : "비로그인" %>)</h1>
+        <h1>차량 블랙박스 시스템 (<%= userId %>)</h1>
         <p style="text-align: center;">블랙박스 기록 조회 및 설정을 관리하는 페이지입니다.</p>
 
-        <div class="controls">
-            <label for="videoSource">카메라 선택:</label>
-            <select id="videoSource"></select>
-        </div>
+        <% if ("root".equals(userId)) { %>
+            <!-- ============================== -->
+            <!-- root 계정 전용 영상 업로드 화면 -->
+            <!-- ============================== -->
+            <div style="text-align: center; margin: 40px auto; padding: 30px; border: 2px dashed #00A2E8; border-radius: 10px; background-color: #FAFCFF; max-width: 600px;">
+                <h2 style="color: #00A2E8;">블랙박스 영상 직접 업로드</h2>
+                <% if ("true".equals(request.getParameter("uploadSuccess"))) { %>
+                    <p style="color: #28a745; font-weight: bold; background: #e8f5e9; padding: 10px; border-radius: 6px;">업로드 및 처리가 완료되었습니다.</p>
+                <% } %>
+                <form action="uploadDirectVideo" method="post" enctype="multipart/form-data" onsubmit="document.getElementById('uploadBtn').disabled=true; document.getElementById('uploadBtn').innerText='업로드 중... 잠시만 기다려주세요.';">
+                    <p style="margin-bottom: 20px; color: #2C3E50;">업로드할 블랙박스 영상 파일을 선택해주세요. (비디오 파일만 가능)</p>
+                    <input type="file" name="videoFile" accept="video/*" required style="padding: 10px; border: 1px solid #87CEFA; border-radius: 6px; background: white; cursor: pointer; width: 80%;">
+                    <br><br>
+                    <button type="submit" id="uploadBtn" style="font-size: 1.1em; padding: 12px 25px; cursor: pointer; background-color: #00A2E8; color: white; border: none; border-radius: 6px; font-weight: bold;">업로드 및 분석 요청</button>
+                </form>
+            </div>
+            
+            <!-- ============================== -->
+            <!-- 관리자 전용 기능 (AnalyzedReportTask 수동 실행) -->
+            <!-- ============================== -->
+            <div style="text-align: center; margin: 20px auto 40px auto; padding: 20px; border: 2px solid #dc3545; border-radius: 10px; background-color: #fff; max-width: 600px;">
+                <h3 style="color: #dc3545; margin-top: 0;">🛠 관리자 도구</h3>
+                <% if ("true".equals(request.getParameter("taskSuccess"))) { %>
+                    <p style="color: #28a745; font-weight: bold; background: #e8f5e9; padding: 10px; border-radius: 6px;">분석 보고서 확인 작업(AnalyzedReportTask)이 백그라운드에서 시작되었습니다.</p>
+                <% } %>
+                <form action="runAnalysisTask" method="post" onsubmit="document.getElementById('taskBtn').disabled=true; document.getElementById('taskBtn').innerText='실행 요청 중...';">
+                    <button type="submit" id="taskBtn" style="font-size: 1.1em; padding: 12px 25px; cursor: pointer; background-color: #dc3545; color: white; border: none; border-radius: 6px; font-weight: bold;">분석 보고서 수동 확인 실행</button>
+                </form>
+            </div>
+        <% } else { %>
+            <!-- ============================== -->
+            <!-- 기존 사용자들의 WebRTC 영상 녹화 화면 부분 -->
+            <!-- ============================== -->
+            <div class="controls">
+                <label for="videoSource">카메라 선택:</label>
+                <select id="videoSource"></select>
+            </div>
 
-        <video id="video" playsinline autoplay muted></video>
+            <video id="video" playsinline autoplay muted></video>
 
-        <div class="controls buttons">
-            <button id="toggleBtn">녹화 시작</button>
-        </div>
+            <div class="controls buttons">
+                <button id="toggleBtn">녹화 시작</button>
+            </div>
 
-        <details>
-            <summary>영상 조각 로그</summary>
-            <div id="recordedList"></div>
-        </details>
-        
+            <details>
+                <summary>영상 조각 로그</summary>
+                <div id="recordedList"></div>
+            </details>
+        <% } %>
 
         <hr style="margin-top: 30px;">
         <a href="video.jsp" style="display: block; text-align: center; margin-bottom: 15px; color: #28a745; font-weight: bold; text-decoration: none;">영상 보관함으로 이동</a>
         <a href="index.jsp?auto=false" style="display: block; text-align: center; color: #333; font-weight: bold; text-decoration: none;">메인 화면으로 돌아가기</a>
     </div>
 
+    <% if (!"root".equals(userId)) { %>
     <!-- 커스텀 알림(모달) UI: 첫 방문 시 카메라 선택창 -->
     <div id="cameraAlertOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999;">
         <div style="background:white; padding:20px; border-radius:8px; text-align:center; color:black; width: 80%; max-width: 300px;">
@@ -538,5 +578,6 @@
 
         init();
     </script>
+    <% } %>
 </body>
 </html>
